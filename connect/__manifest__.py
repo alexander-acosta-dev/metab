@@ -2,7 +2,7 @@
 
 {
     'name': 'Connect',
-    'version': '1.0.2',
+    'version': '1.0.1',
     'author': 'Oduist',
     'maintainer': 'Oduist',
     'live_test_url': 'https://connect-demo-18.oduist.com/',
@@ -23,6 +23,7 @@
         'data/functions.xml',
         'data/ir_cron.xml',
         'data/twiml.xml',
+        'data/query_prompt.xml',
         'data/outgoing_rules.xml',
         'data/res_partner.xml',
         # Security
@@ -46,11 +47,13 @@
         'views/outgoing_callerid.xml',
         'views/outgoing_rule.xml',
         'views/recording.xml',
+        'views/query.xml',
+        'views/query_prompt.xml',
+        'views/query_source.xml',
         'views/number.xml',
         'views/favorite.xml',
         'views/res_partner.xml',
         'views/message.xml',
-        'views/versions.xml',
         # Wizard
         'wizard/transfer.xml',
         ],
