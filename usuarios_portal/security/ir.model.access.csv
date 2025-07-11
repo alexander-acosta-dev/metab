@@ -1,0 +1,2 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_usuarios_portal_usuarios_portal,usuarios_portal.usuarios_portal,model_usuarios_portal_usuarios_portal,base.group_user,1,1,1,1
