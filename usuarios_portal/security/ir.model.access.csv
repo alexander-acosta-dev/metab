@@ -1,4 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_calendar_event_portal,Portal Access: Calendar Events,calendar.model_calendar_event,base.group_portal,1,1,1,1
-access_crm_lead_portal,Portal Access: CRM Leads,crm.model_crm_lead,base.group_portal,1,1,1,1
+access_crm_lead_portal,Portal Access: CRM Leads,crm.model_crm_lead,base.group_portal,1,1,0,1
 access_res_partner_portal,Portal Access: Own Partner,base.model_res_partner,base.group_portal,1,1,0,0
