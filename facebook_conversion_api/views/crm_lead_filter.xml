@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="crm_lead_filter_enviado_meta" model="ir.ui.view">
+        <field name="name">crm.lead.search.facebook</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.view_crm_case_opportunities_filter"/>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[@name='open_opportunities']" position="after">
+                <filter string="Enviado a Meta"
+                        name="enviado_meta"
+                        domain="[('event_facebook_id','!=',False)]"
+                        help="Oportunidades enviadas a Meta"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

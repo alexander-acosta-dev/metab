@@ -1,0 +1,6 @@
+<odoo>
+  <record id="model_facebook_conversion_api" model="ir.model">
+    <field name="name">facebook.conversion.api</field>
+    <field name="model">facebook.conversion.api</field>
+  </record>
+</odoo>

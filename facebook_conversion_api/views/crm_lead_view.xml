@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_crm_lead_form_fb_api" model="ir.ui.view">
+        <field name="name">crm.lead.form.facebook.api</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_send_facebook_event"
+                        type="object"
+                        string="Enviar a Meta"
+                        class="oe_highlight"
+                        invisible="not email_from"/>
+            </xpath>
+            <xpath expr="//page[@name='extra']//group" position="inside">
+                <group string="Meta">
+                    <field name="event_facebook_id" readonly="1"/>
+                </group>
+            </xpath>
+            <xpath expr="//page[@name='lead']//group" position="inside">
+                <group string="Meta">
+                    <field name="event_facebook_id" readonly="1"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="crm_lead_tree_facebook_event" model="ir.ui.view">
+        <field name="name">crm.lead.tree.facebook.api</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_case_tree_view_oppor"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='stage_id']" position="after">
+                <field name="event_facebook_id"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
