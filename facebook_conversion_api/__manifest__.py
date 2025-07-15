@@ -1,9 +1,10 @@
 {
     'name': 'Facebook Conversion API',
-    'version': '1.0',
+    'version': '0.1',
     'category': 'Marketing',
     'summary': 'Integra Odoo con Facebook Conversion API',
     'author': 'Sellside SpA',
+    'website': "https://www.sellside.cl",
     'depends': ['base', 'crm'],
     'data': [
         'security/model_access.xml',
