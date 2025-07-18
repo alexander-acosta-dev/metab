@@ -3,10 +3,14 @@
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { onMounted } from "@odoo/owl";
+import { Component } from "@odoo/owl";
 
-const { Component } = owl;
+// IMPORTAMOS el template aunque no lo usemos visualmente
+import { xml } from "@odoo/owl";
 
 export class MetaLeadImportShortcut extends Component {
+    static template = "crm_meta_leads.MetaLeadImportShortcut";
+
     setup() {
         this.rpc = useService("rpc");
 
@@ -40,7 +44,6 @@ export class MetaLeadImportShortcut extends Component {
     }
 }
 
-// Registramos el componente como servicio del entorno backend
 registry.category("main_components").add("meta_lead_import_shortcut", {
     Component: MetaLeadImportShortcut,
     props: {},
