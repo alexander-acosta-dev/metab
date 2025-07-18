@@ -78,8 +78,7 @@ class CrmLead(models.Model):
         for lead in self:
             if not lead.email_from:
                 raise UserError("La oportunidad no tiene correo.")
-            phone = lead.phone or lead.mobile_phone
-            if not phone:
+            if not lead.phone:
                 raise UserError("La oportunidad no tiene número de teléfono.")
 
             if lead.event_facebook_id:
@@ -89,7 +88,7 @@ class CrmLead(models.Model):
             status_code, response_text, event_id = self.env['facebook.conversion.api'].send_event(
                 event_name="Lead",
                 email=lead.email_from,
-                phone=phone,
+                phone=lead.phone,
                 ip_address=self._context.get('client_ip', '127.0.0.1'),
                 user_agent=self._context.get('user_agent', 'Odoo'),
                 value=0
