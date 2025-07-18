@@ -18,7 +18,7 @@ class FacebookConversionAPI(models.Model):
             return hashlib.sha256(data.strip().lower().encode()).hexdigest()
         return None
 
-    def send_event(self, event_name, email, phone, ip_address, user_agent, currency="CLP", value=0.0):
+    def send_event(self, event_name, email, phone, country, city, region, ip_address, user_agent, currency="CLP", value=0.0):
 
         pixel_id = self.env['ir.config_parameter'].sudo().get_param('meta.pixel_id')
         token = self.env['ir.config_parameter'].sudo().get_param('meta.access_token')
@@ -41,6 +41,15 @@ class FacebookConversionAPI(models.Model):
             "client_user_agent": user_agent,
         }
 
+        if country and len(country.strip()) == 2:
+            user_data["country"] = self.hash_data(country.strip().lower())
+
+        if city:
+            user_data["ct"] = self.hash_data(city.strip().lower())
+
+        if region:
+            user_data["st"] = self.hash_data(region.strip().lower())
+
         custom_data = {
             "currency": currency,
             "value": value
@@ -57,6 +66,8 @@ class FacebookConversionAPI(models.Model):
             }],
             "access_token": token
         }
+
+        _logger.debug(f"Payload enviado a Meta: {json.dumps(payload, indent=2)}")
         
         try:
             response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
@@ -76,10 +87,12 @@ class CrmLead(models.Model):
 
     def action_send_facebook_event(self):
         for lead in self:
-            if not lead.email_from:
-                raise UserError("La oportunidad no tiene correo.")
-            if not lead.phone:
-                raise UserError("La oportunidad no tiene número de teléfono.")
+            if not lead.email_from and not lead.phone:
+                raise UserError("Meta requiere al menos email o teléfono válidos para enviar el evento.")
+
+            country = lead.country_id.code if lead.country_id else None
+            city = lead.city if lead.city else None
+            region = lead.state_id.name if lead.state_id else None
 
             if lead.event_facebook_id:
                 # Ya enviado antes, evitar duplicados o enviar con lógica distinta
@@ -89,6 +102,9 @@ class CrmLead(models.Model):
                 event_name="Lead",
                 email=lead.email_from,
                 phone=lead.phone,
+                country=country,
+                city=city,
+                region=region,
                 ip_address=self._context.get('client_ip', '127.0.0.1'),
                 user_agent=self._context.get('user_agent', 'Odoo'),
                 value=0
