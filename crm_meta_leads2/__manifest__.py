@@ -13,7 +13,7 @@
     'assets': {
         'web.assets_backend': [
             'crm_meta_leads2/static/src/js/import_leads_shortcut.js',
-            'crm_meta_leads/static/src/xml/crm_lead_views.xml',
+            'crm_meta_leads/views/meta_lead_shortcut_template.xml',
             
         ],
     },
