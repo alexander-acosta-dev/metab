@@ -12,7 +12,7 @@
     ],
     'assets': {
         'web.assets_backend': [
-            'crm_meta_leads/static/src/js/import_leads_shortcut.js',
+            'crm_meta_leads2/static/src/js/import_leads_shortcut.js',
         ],
     },
     'installable': True,
