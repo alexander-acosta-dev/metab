@@ -2,7 +2,7 @@ import requests
 import json
 import hashlib
 import uuid
-import datetime
+import time
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 import logging
@@ -18,19 +18,37 @@ class FacebookConversionAPI(models.Model):
             return hashlib.sha256(data.strip().lower().encode()).hexdigest()
         return None
 
-    def send_event(self, event_name, email, phone, ip_address, user_agent, currency="CLP", value=0.0):
-        token = 'EAAP3lDfOoDEBPPa6iVkz9IIAcl16buaOiGgTRawUN20lYI5AjmkLWHSZAQDMvmMOI2IeRPawyXOUYEk8nsP4ZCPoWPeM6QqcGLklzTIBz1JYYJYhfXfJGPoeMfpCeCNRbtIQd17OKV73ssE91uIvg1sg2v904p7by3O6cQW3IEIZB2kbY2pPMy6ZAfjfcgZDZD'
-        pixel_id = '943376917913790'
+    def send_event(self, event_name, email, phone, country, city, region, ip_address, user_agent, currency="CLP", value=0.0):
+
+        pixel_id = self.env['ir.config_parameter'].sudo().get_param('meta.pixel_id')
+        token = self.env['ir.config_parameter'].sudo().get_param('meta.access_token')
+
+        if not pixel_id or not token:
+            raise UserError("Configura Pixel ID y Access Token de Meta en Parámetros del sistema.")
 
         url = f'https://graph.facebook.com/v23.0/{pixel_id}/events'
+
         event_id = str(uuid.uuid4())
 
+        headers = {
+            'Content-Type': 'application/json'
+        }
+
         user_data = {
-            "em": self.hash_data(email),
-            "ph": self.hash_data(phone),
             "client_ip_address": ip_address,
             "client_user_agent": user_agent,
         }
+
+        if email:
+            user_data["em"] = self.hash_data(email)
+        if phone:
+            user_data["ph"] = self.hash_data(phone)
+        if country and len(country.strip()) == 2:
+            user_data["country"] = self.hash_data(country.strip().lower())
+        if city:
+            user_data["ct"] = self.hash_data(city.strip().lower())
+        if region:
+            user_data["st"] = self.hash_data(region.strip().lower())
 
         custom_data = {
             "currency": currency,
@@ -40,23 +58,26 @@ class FacebookConversionAPI(models.Model):
         payload = {
             "data": [{
                 "event_name": event_name,
-                "event_time": int(fields.datetime.now().timestamp()),
+                "event_time": int(time.time()),
                 "event_id": event_id,
                 "user_data": user_data,
                 "custom_data": custom_data,
-                "action_source": "website"
+                "action_source": "system_generated"
             }],
             "access_token": token
         }
 
-        headers = {'Content-Type': 'application/json'}
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        _logger.debug(f"Payload enviado a Meta: {json.dumps(payload, indent=2)}")
+        
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            _logger.error(f"Error enviando evento a Meta: {e}")
+            raise UserError(f"Error enviando evento a Meta: {e}")
 
-        if response.status_code == 200:
-            _logger.info(f"Evento '{event_name}' enviado correctamente a Meta. Event ID: {event_id}")
-            return response.status_code, response.text, event_id
-        else:
-            raise Exception(f'Error {response.status_code}: {response.text}')
+        _logger.info(f"Evento '{event_name}' enviado correctamente a Meta. Event ID: {event_id}")
+        return response.status_code, response.text, event_id
 
 
 class CrmLead(models.Model):
@@ -66,15 +87,24 @@ class CrmLead(models.Model):
 
     def action_send_facebook_event(self):
         for lead in self:
-            if not lead.email_from:
-                raise UserError("La oportunidad no tiene correo.")
-            if not lead.phone:
-                raise UserError("La oportunidad no tiene número de teléfono.")
+            if not lead.email_from and not lead.phone:
+                raise UserError("Meta requiere al menos email o teléfono válidos para enviar el evento.")
+
+            country = lead.country_id.code if lead.country_id else None
+            city = lead.city if lead.city else None
+            region = lead.state_id.name if lead.state_id else None
+
+            if lead.event_facebook_id:
+                # Ya enviado antes, evitar duplicados o enviar con lógica distinta
+                continue
 
             status_code, response_text, event_id = self.env['facebook.conversion.api'].send_event(
                 event_name="Lead",
                 email=lead.email_from,
                 phone=lead.phone,
+                country=country,
+                city=city,
+                region=region,
                 ip_address=self._context.get('client_ip', '127.0.0.1'),
                 user_agent=self._context.get('user_agent', 'Odoo'),
                 value=0
