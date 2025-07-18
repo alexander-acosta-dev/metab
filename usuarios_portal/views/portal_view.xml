@@ -448,8 +448,21 @@
                                                             <span class="badge bg-success">Programada</span>
                                                         </td>
                                                     </tr>
+                                                    <tr t-if="meeting.google_meet_link">
+                                                        <th>Enlace (Google Meet):</th>
+                                                        <td>
+                                                            <a t-att-href="meeting.google_meet_link" target="_blank" class="btn btn-outline-primary btn-sm">
+                                                                Abrir enlace
+                                                            </a>
+                                                        </td>
+                                                    </tr>
+                                                    <tr t-if="not meeting.google_meet_link">
+                                                        <th>Enlace (Google Meet):</th>
+                                                        <td><span class="text-muted">No disponible</span></td>
+                                                    </tr>
                                                 </table>
                                             </div>
+
                                             <div class="col-md-6">
                                                 <h5>Asistentes:</h5>
                                                 <ul class="list-group list-group-flush">
@@ -529,6 +542,18 @@
                                                        id="name" 
                                                        class="form-control" 
                                                        t-att-value="meeting.name if meeting else ''" 
+                                                       required="required"/>
+                                            </div>
+
+                                            <div class="mb-3">
+                                                <label for="google_meet_link" class="form-label">
+                                                    Link (GoogleMeet) <span class="text-danger"></span>
+                                                </label>
+                                                <input type="url" 
+                                                       name="google_meet_link" 
+                                                       id="google_meet_link" 
+                                                       class="form-control" 
+                                                       t-att-value="meeting.google_meet_link if meeting else ''" 
                                                        required="required"/>
                                             </div>
 
