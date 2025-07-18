@@ -35,18 +35,18 @@ class FacebookConversionAPI(models.Model):
         }
 
         user_data = {
-            "em": self.hash_data(email),
-            "ph": self.hash_data(phone),
             "client_ip_address": ip_address,
             "client_user_agent": user_agent,
         }
 
+        if email:
+            user_data["em"] = self.hash_data(email)
+        if phone:
+            user_data["ph"] = self.hash_data(phone)
         if country and len(country.strip()) == 2:
             user_data["country"] = self.hash_data(country.strip().lower())
-
         if city:
             user_data["ct"] = self.hash_data(city.strip().lower())
-
         if region:
             user_data["st"] = self.hash_data(region.strip().lower())
 
