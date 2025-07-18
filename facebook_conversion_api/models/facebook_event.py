@@ -18,7 +18,7 @@ class FacebookConversionAPI(models.Model):
             return hashlib.sha256(data.strip().lower().encode()).hexdigest()
         return None
 
-    def send_event(self, event_name, email, phone, country, city, region, ip_address, user_agent, currency="CLP", value=0.0):
+    def send_event(self, event_name, email, phone, country, city, region, ip_address, user_agent, external_id, currency="CLP", value=0.0):
 
         pixel_id = self.env['ir.config_parameter'].sudo().get_param('meta.pixel_id')
         token = self.env['ir.config_parameter'].sudo().get_param('meta.access_token')
@@ -49,6 +49,8 @@ class FacebookConversionAPI(models.Model):
             user_data["ct"] = self.hash_data(city.strip().lower())
         if region:
             user_data["st"] = self.hash_data(region.strip().lower())
+        if external_id:
+            user_data["external_id"] = self.hash_data(external_id)
 
         custom_data = {
             "currency": currency,
@@ -84,6 +86,7 @@ class CrmLead(models.Model):
     _inherit = 'crm.lead'
 
     event_facebook_id = fields.Char(string="ID Evento Meta", readonly=True)
+    meta_sent_date = fields.Datetime(string="Fecha de Envío a Meta", readonly=True)
 
     def action_send_facebook_event(self):
         for lead in self:
@@ -94,9 +97,9 @@ class CrmLead(models.Model):
             city = lead.city if lead.city else None
             region = lead.state_id.name if lead.state_id else None
 
-            if lead.event_facebook_id:
-                # Ya enviado antes, evitar duplicados o enviar con lógica distinta
-                continue
+            # Verificar si ya fue enviado y si fue modificado después del último envío
+            if lead.meta_sent_date and lead.write_date <= lead.meta_sent_date:
+                continue  # Ya enviado y sin cambios desde entonces
 
             status_code, response_text, event_id = self.env['facebook.conversion.api'].send_event(
                 event_name="Lead",
@@ -107,12 +110,14 @@ class CrmLead(models.Model):
                 region=region,
                 ip_address=self._context.get('client_ip', '127.0.0.1'),
                 user_agent=self._context.get('user_agent', 'Odoo'),
+                external_id=str(lead.id),
                 value=0
             )
 
             if status_code == 200:
                 # Guardar en el campo
                 lead.event_facebook_id = event_id
+                lead.meta_sent_date = fields.Datetime.now()
 
                 # 📝 Registrar nota en chatter
                 lead.message_post(

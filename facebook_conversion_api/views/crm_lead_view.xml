@@ -10,16 +10,18 @@
                         type="object"
                         string="Enviar a Meta"
                         class="oe_highlight"
-                        invisible="not email_from"/>
+                        invisible="(not email_from and not phone) or event_facebook_id"/>
             </xpath>
             <xpath expr="//page[@name='extra']//group" position="inside">
                 <group string="Meta">
                     <field name="event_facebook_id" readonly="1"/>
+                    <field name="meta_sent_date" readonly="1"/>
                 </group>
             </xpath>
             <xpath expr="//page[@name='lead']//group" position="inside">
                 <group string="Meta">
                     <field name="event_facebook_id" readonly="1"/>
+                    <field name="meta_sent_date" readonly="1"/>
                 </group>
             </xpath>
         </field>
