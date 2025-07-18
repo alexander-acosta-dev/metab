@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<odoo>
-    <!-- Este archivo queda vacío por ahora -->
-</odoo>
-
+<templates xml:space="preserve">
+    <t t-name="crm_meta_leads.MetaLeadImportShortcut">
+        <!-- No se renderiza nada, es solo para que OWL no falle -->
+    </t>
+</templates>
