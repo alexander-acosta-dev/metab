@@ -144,10 +144,9 @@ class CrmLead(models.Model):
                 lead.event_facebook_id = event_id
                 lead.meta_sent_date = fields.Datetime.now()
 
-                lead.message_post(
+                lead.with_context(mail_post_no_email=True).message_post(
                     body="✅ Evento enviado a Meta Conversion API correctamente.",
-                    subtype_xmlid="mail.mt_note",
-                    not_send_notification=True
+                    subtype_xmlid="mail.mt_note"
                 )
 
                 tag = self.env['crm.tag'].search([('name', '=', 'Enviado a Meta')], limit=1)
