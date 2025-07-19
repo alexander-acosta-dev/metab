@@ -87,6 +87,11 @@ class CrmLead(models.Model):
     event_facebook_id = fields.Char(string="ID Evento Meta", readonly=True)
     meta_sent_date = fields.Datetime(string="Fecha de Envío a Meta", readonly=True)
 
+    is_sending_to_meta = fields.Boolean(
+        string="Enviando a Meta (Temporal)",
+        default=False
+    )
+
     show_send_to_meta = fields.Boolean(
         string="Mostrar botón Enviar a Meta",
         compute="_compute_show_send_to_meta",
@@ -114,44 +119,59 @@ class CrmLead(models.Model):
             if lead.event_facebook_id and lead.meta_sent_date and lead.write_date <= lead.meta_sent_date:
                 continue
 
-            # Determinar país, ciudad, región
-            country = lead.country_id.code if lead.country_id else None
-            city = lead.city or None
-            region = lead.state_id.name or None
+             # Establecer la bandera temporalmente ANTES de cualquier escritura que pueda disparar reglas
+            # Usamos write para establecer la bandera, asegurando que se aplique antes de continuar
+            lead.write({'is_sending_to_meta': True})
 
-            # Regenerar event_id si pasaron más de 7 días desde último envío
-            if lead.meta_sent_date and fields.Datetime.now() - lead.meta_sent_date > timedelta(days=7):
-                event_id = str(uuid.uuid4())
-            else:
-                event_id = lead.event_facebook_id or str(uuid.uuid4())
+            try:
+                # Determinar país, ciudad, región
+                country = lead.country_id.code if lead.country_id else None
+                city = lead.city or None
+                region = lead.state_id.name or None
 
-            # Enviar evento
-            status_code, response_text, event_id = self.env['facebook.conversion.api'].send_event(
-                event_name="Lead",
-                email=lead.email_from,
-                phone=lead.phone,
-                country=country,
-                city=city,
-                region=region,
-                ip_address=self._context.get('client_ip', '127.0.0.1'),
-                user_agent=self._context.get('user_agent', 'Odoo'),
-                external_id=str(lead.id),
-                value=0,
-                event_id=event_id
-            )
+                # Regenerar event_id si pasaron más de 7 días desde último envío
+                if lead.meta_sent_date and fields.Datetime.now() - lead.meta_sent_date > timedelta(days=7):
+                    event_id = str(uuid.uuid4())
+                else:
+                    event_id = lead.event_facebook_id or str(uuid.uuid4())
 
-            if status_code == 200:
-                lead.event_facebook_id = event_id
-                lead.meta_sent_date = fields.Datetime.now()
-
-                lead.with_context(mail_post_no_email=True).message_post(
-                    body="✅ Evento enviado a Meta Conversion API correctamente.",
-                    subtype_xmlid="mail.mt_note"
+                # Enviar evento
+                status_code, response_text, event_id = self.env['facebook.conversion.api'].send_event(
+                    event_name="Lead",
+                    email=lead.email_from,
+                    phone=lead.phone,
+                    country=country,
+                    city=city,
+                    region=region,
+                    ip_address=self._context.get('client_ip', '127.0.0.1'),
+                    user_agent=self._context.get('user_agent', 'Odoo'),
+                    external_id=str(lead.id),
+                    value=0,
+                    event_id=event_id
                 )
 
-                tag = self.env['crm.tag'].search([('name', '=', 'Enviado a Meta')], limit=1)
-                if not tag:
-                    tag = self.env['crm.tag'].create({'name': 'Enviado a Meta'})
-                lead.tag_ids = [(4, tag.id)]
-            else:
-                raise UserError(f'Error al enviar evento a Meta: {response_text}')
+                if status_code == 200:
+                    # Actualizar los campos del lead de Meta
+                    # Importante: Estas escrituras también se realizarán con is_sending_to_meta=True
+                    # lo que evitará que la regla de automatización de correo se dispare aquí.
+                    lead.write({
+                        'event_facebook_id': event_id,
+                        'meta_sent_date': fields.Datetime.now()
+                    })
+
+                    # Publicar el mensaje en el chatter sin enviar notificación por correo
+                    # (asegúrate de que esta línea esté como la dejamos, con mail_post_no_email=True)
+                    lead.with_context(mail_post_no_email=True).message_post(
+                        body="✅ Evento enviado a Meta Conversion API correctamente.",
+                        subtype_xmlid="mail.mt_note"
+                    )
+
+                    tag = self.env['crm.tag'].search([('name', '=', 'Enviado a Meta')], limit=1)
+                    if not tag:
+                        tag = self.env['crm.tag'].create({'name': 'Enviado a Meta'})
+                    lead.tag_ids = [(4, tag.id)]
+                else:
+                    raise UserError(f'Error al enviar evento a Meta: {response_text}')
+            finally:
+                # Asegurarse de resetear la bandera, incluso si hay un error
+                lead.write({'is_sending_to_meta': False})
