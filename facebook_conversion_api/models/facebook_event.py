@@ -18,7 +18,7 @@ class FacebookConversionAPI(models.Model):
             return hashlib.sha256(data.strip().lower().encode()).hexdigest()
         return None
 
-    def send_event(self, event_name, email, phone, country, city, region, ip_address, user_agent, external_id, currency="CLP", value=0.0):
+    def send_event(self, event_name, email, phone, country, city, region, ip_address, user_agent, external_id, currency="CLP", value=0.0, event_id=None):
 
         pixel_id = self.env['ir.config_parameter'].sudo().get_param('meta.pixel_id')
         token = self.env['ir.config_parameter'].sudo().get_param('meta.access_token')
@@ -28,7 +28,8 @@ class FacebookConversionAPI(models.Model):
 
         url = f'https://graph.facebook.com/v23.0/{pixel_id}/events'
 
-        event_id = str(uuid.uuid4())
+        if not event_id:
+            event_id = str(uuid.uuid4())
 
         headers = {
             'Content-Type': 'application/json'
@@ -91,7 +92,7 @@ class CrmLead(models.Model):
     show_send_to_meta = fields.Boolean(
         string="Mostrar botón Enviar a Meta",
         compute="_compute_show_send_to_meta",
-        # store=True,
+        store=True,
     )
 
     @api.depends('email_from', 'phone', 'event_facebook_id', 'meta_sent_date', 'write_date')
@@ -122,6 +123,9 @@ class CrmLead(models.Model):
             if lead.event_facebook_id and lead.meta_sent_date and lead.write_date <= lead.meta_sent_date:
                 continue  # Ya enviado y sin cambios desde entonces
 
+            is_new_event = not lead.event_facebook_id
+            event_id = lead.event_facebook_id or str(uuid.uuid4())
+
             status_code, response_text, event_id = self.env['facebook.conversion.api'].send_event(
                 event_name="Lead",
                 email=lead.email_from,
@@ -132,12 +136,14 @@ class CrmLead(models.Model):
                 ip_address=self._context.get('client_ip', '127.0.0.1'),
                 user_agent=self._context.get('user_agent', 'Odoo'),
                 external_id=str(lead.id),
-                value=0
+                value=0,
+                event_id=event_id
             )
 
             if status_code == 200:
                 # Guardar en el campo
-                lead.event_facebook_id = event_id
+                if is_new_event:
+                    lead.event_facebook_id = event_id
                 lead.meta_sent_date = fields.Datetime.now()
 
                 # 📝 Registrar nota en chatter
