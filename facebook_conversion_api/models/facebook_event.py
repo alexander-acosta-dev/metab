@@ -119,7 +119,7 @@ class CrmLead(models.Model):
             region = lead.state_id.name if lead.state_id else None
 
             # Verificar si ya fue enviado y si fue modificado después del último envío
-            if lead.meta_sent_date and lead.write_date <= lead.meta_sent_date:
+            if lead.event_facebook_id and lead.meta_sent_date and lead.write_date <= lead.meta_sent_date:
                 continue  # Ya enviado y sin cambios desde entonces
 
             status_code, response_text, event_id = self.env['facebook.conversion.api'].send_event(
