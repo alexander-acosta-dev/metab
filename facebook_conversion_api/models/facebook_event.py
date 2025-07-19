@@ -91,7 +91,7 @@ class CrmLead(models.Model):
     show_send_to_meta = fields.Boolean(
         string="Mostrar botón Enviar a Meta",
         compute="_compute_show_send_to_meta",
-        store=True,
+        # store=True,
     )
 
     @api.depends('email_from', 'phone', 'event_facebook_id', 'meta_sent_date', 'write_date')
