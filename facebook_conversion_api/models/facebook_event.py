@@ -146,7 +146,8 @@ class CrmLead(models.Model):
 
                 lead.message_post(
                     body="✅ Evento enviado a Meta Conversion API correctamente.",
-                    subtype_xmlid="mail.mt_note"
+                    subtype_xmlid="mail.mt_note",
+                    not_send_notification=True
                 )
 
                 tag = self.env['crm.tag'].search([('name', '=', 'Enviado a Meta')], limit=1)
