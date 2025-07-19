@@ -88,6 +88,27 @@ class CrmLead(models.Model):
     event_facebook_id = fields.Char(string="ID Evento Meta", readonly=True)
     meta_sent_date = fields.Datetime(string="Fecha de Envío a Meta", readonly=True)
 
+    show_send_to_meta = fields.Boolean(
+        string="Mostrar botón Enviar a Meta",
+        compute="_compute_show_send_to_meta",
+        store=True,
+    )
+
+    @api.depends('email_from', 'phone', 'event_facebook_id', 'meta_sent_date', 'write_date')
+    def _compute_show_send_to_meta(self):
+        for lead in self:
+            if not lead.email_from and not lead.phone:
+                lead.show_send_to_meta = False
+            elif not lead.event_facebook_id:
+                # Nunca enviado, mostrar botón
+                lead.show_send_to_meta = True
+            else:
+                # Si ya fue enviado, mostrar solo si hubo cambios luego del último envío
+                if lead.write_date and lead.meta_sent_date and lead.write_date > lead.meta_sent_date:
+                    lead.show_send_to_meta = True
+                else:
+                    lead.show_send_to_meta = False
+
     def action_send_facebook_event(self):
         for lead in self:
             if not lead.email_from and not lead.phone:

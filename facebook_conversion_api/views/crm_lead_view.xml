@@ -10,7 +10,7 @@
                         type="object"
                         string="Enviar a Meta"
                         class="oe_highlight"
-                        invisible="(not email_from and not phone) or event_facebook_id"/>
+                        invisible="not show_send_to_meta"/>
             </xpath>
             <xpath expr="//page[@name='extra']//group" position="inside">
                 <group string="Meta">
