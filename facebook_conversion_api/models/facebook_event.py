@@ -87,11 +87,6 @@ class CrmLead(models.Model):
     event_facebook_id = fields.Char(string="ID Evento Meta", readonly=True)
     meta_sent_date = fields.Datetime(string="Fecha de Envío a Meta", readonly=True)
 
-    is_sending_to_meta = fields.Boolean(
-        string="Enviando a Meta (Temporal)",
-        default=False
-    )
-
     show_send_to_meta = fields.Boolean(
         string="Mostrar botón Enviar a Meta",
         compute="_compute_show_send_to_meta",
@@ -118,10 +113,6 @@ class CrmLead(models.Model):
             # Saltar si ya fue enviado y no hay cambios
             if lead.event_facebook_id and lead.meta_sent_date and lead.write_date <= lead.meta_sent_date:
                 continue
-
-             # Establecer la bandera temporalmente ANTES de cualquier escritura que pueda disparar reglas
-            # Usamos write para establecer la bandera, asegurando que se aplique antes de continuar
-            lead.write({'is_sending_to_meta': True})
 
             try:
                 # Determinar país, ciudad, región
@@ -172,6 +163,6 @@ class CrmLead(models.Model):
                     lead.tag_ids = [(4, tag.id)]
                 else:
                     raise UserError(f'Error al enviar evento a Meta: {response_text}')
-            finally:
-                # Asegurarse de resetear la bandera, incluso si hay un error
-                lead.write({'is_sending_to_meta': False})
+            except Exception as e:
+                _logger.error(f"DEBUG: Error en action_send_facebook_event para Lead {lead.id}: {e}")
+                raise
