@@ -21,13 +21,13 @@ la visita se realizó en el lugar correcto. Ideal para equipos de ventas en terr
     'data': [
         'security/ir.model.access.csv',
         'views/geo_checkin_view.xml',
+        'views/map_renderer_patch.xml',
     ],
 
     'assets': {
         'web.assets_backend': [
             'geo_checkin/static/src/js/geo_checkin.js',
             # 'geo_checkin/static/src/map_view/map_renderer.js',
-            'geo_checkin/static/src/map_view/map_renderer_patch.xml',
             # 'geo_checkin/static/src/map_view/map_extension.xml',
         ],
     },
