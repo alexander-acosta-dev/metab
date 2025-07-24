@@ -1,6 +1,7 @@
 /** @odoo-module @geo_checkin/map_view/map_renderer **/
 
-import { MapRenderer } from "@web_map/map_view/map_renderer";
+// import { MapRenderer } from "@web_map/map_view/map_renderer";
+import { MapRenderer } from "web_map.map_view.map_renderer";
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { useService } from "@web/core/utils/hooks"; // Necesitas importar useService para usar el servicio ORM
