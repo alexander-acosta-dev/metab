@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<odoo>
-    <template id="geo_checkin_assets_patch" inherit_id="web.assets_backend" name="GeoCheckin MapRenderer Patch">
-        <xpath expr="." position="inside">
-            <script type="module" src="/geo_checkin/static/src/map_view/map_renderer_patch.js"/>
-        </xpath>
-    </template>
-</odoo>
