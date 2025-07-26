@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <!-- Añadir botones al portal principal -->
+    <!-- Añadir botones al portal principal -->
         <template id="portal_my_home_inherit" inherit_id="portal.portal_my_home">
             <xpath expr="//div[hasclass('o_portal_my_home')]" position="inside">
                 <div class="o_portal_category row g-2 mt-3">
@@ -303,7 +303,6 @@
                 </div>
             </t>
         </template>
-
         <!-- Lista de reuniones -->
         <template id="portal_my_meetings" name="Portal My Meetings">
             <t t-call="portal.portal_layout">
@@ -317,6 +316,9 @@
                             <div class="col-12">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <h1>Reuniones</h1>
+                                    <a href="/google_calendar/form" class="btn btn-outline-success me-2">
+                                        <i class="fa fa-refresh"/> Sincronizar con Google Calendar
+                                    </a>
                                     <a href="/my/meetings/create" class="btn btn-primary">
                                         <i class="fa fa-plus"/> Nueva Reunión
                                     </a>

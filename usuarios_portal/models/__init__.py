@@ -1,3 +1,1 @@
-# -*- coding: utf-8 -*-
-
-from . import models
+from . import google_calendar_service

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 {
     'name': "Portal Extension for Brokers",
     'summary': "Custom portal access for brokers",

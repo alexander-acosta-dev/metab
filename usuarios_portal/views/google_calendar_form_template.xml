@@ -1,0 +1,16 @@
+<odoo>
+    <template id="google_calendar_form_template" name="Google Calendar Sync Form" inherit_id="website.layout">
+        <xpath expr="//main" position="replace">
+            <main class="container mt-5">
+                <h2>Sincronizar con Google Calendar</h2>
+                <p>Para sincronizar tu calendario, presiona el botón a continuación.</p>
+                <form action="/google_calendar/sync" method="get">
+                    <button type="submit" class="btn btn-success">
+                        <i class="fa fa-refresh"></i> Iniciar sincronización
+                    </button>
+                </form>
+                <a href="/my/meetings" class="btn btn-link mt-3">Volver a reuniones</a>
+            </main>
+        </xpath>
+    </template>
+</odoo>
