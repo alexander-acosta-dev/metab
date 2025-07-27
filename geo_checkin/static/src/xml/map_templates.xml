@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<templates id="template" xml:space="preserve">
-
-    <t t-extend="web_map.markerPopup" t-name="geo_checkin.markerPopupExtension">
-        <xpath expr="//div[hasclass('o-map-renderer--popup-buttons')]" position="inside">
-            <button class="btn btn-primary o-map-renderer--popup-buttons-my-button ms-2" t-on-click="onCheckinButtonClick">
-                Checkin
-            </button>
-        </xpath>
-    </t>
-
-</templates>
+<odoo>
+    <data>
+        <template id="mi_nuevo_boton_mapa_popover"
+                  inherit_id="web_map.markerPopup"
+                  name="Agregar Botón Personalizado en Popover de Mapa"
+                  customize_show="True">
+            <xpath expr="//div[hasclass('o-map-renderer--popup-buttons')]/a[hasclass('btn-primary')][contains(., 'Navigate to')]" position="after">
+                <button type="button" class="btn btn-primary ms-2 o-map-renderer--popup-buttons-my-button" t-on-click="onMyButtonClick">
+                    <span>Checkin</span>
+                </button>
+            </xpath>
+        </template>
+    </data>
+</odoo>

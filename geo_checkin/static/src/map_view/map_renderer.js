@@ -83,16 +83,13 @@
 //     },
 // });
 
+
 /** @odoo-module @geo_checkin/map_view/map_renderer **/
 
-import { registry } from "@web/core/registry"; 
+import { MapRenderer } from "@web_map/map_view/map_renderer";
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { useService } from "@web/core/utils/hooks";
-
-// Seguiremos intentando obtener MapRenderer del registry, es la mejor práctica.
-// (Asegúrate de haber probado y encontrado la clave correcta con el comando de consola)
-const MapRenderer = registry.category("views").get("map").Renderer; // Reemplaza "map" con la clave exacta que encuentres.
 
 patch(MapRenderer.prototype, {
     setup() {
@@ -102,22 +99,30 @@ patch(MapRenderer.prototype, {
         this.notification = useService("notification");
     },
 
-    // El método createMarkerPopup ya NO necesita ser sobreescrito para añadir el botón.
-    // Solo necesitamos el método que se llama desde el XML.
+    // NO NECESITARÍAS ESTE MÉTODO si el XML ya lo crea y el t-on-click apunta a onMyButtonClick
+    // createMarkerPopup(markerInfo, latLongOffset = 0) {
+    //     const popup = super.createMarkerPopup(markerInfo, latLongOffset);
+    //     // ... ya no necesitarías el código para crear el botón aquí ...
+    //     return popup;
+    // },
 
-    /**
-     * Maneja el clic en "Checkin" desde el botón del QWeb.
-     * La 'target' es el record asociado al popup.
-     */
-    async onCheckinButtonClick(ev) {
-        // Acceder a la información del registro desde 'this.props.record'
-        // El 'markerInfo' que usabas antes ahora sería el 'record' en las props del popup
-        const record = this.props.record; // 'this' aquí se refiere a la instancia del MapRenderer o el componente que renderiza el popup.
+    // Manejador de clic, ahora llamado directamente desde el XML
+    // `this` en este contexto ya será la instancia de MapRenderer.
+    // Los eventos t-on-click en QWeb tienen acceso al `this` del componente y a las props.
+    // Sin embargo, para obtener el `markerInfo.record` necesitas que se pase.
+    // El `markerInfo` no está directamente disponible en el scope del `t-on-click` de la misma manera que en el `createMarkerPopup`.
 
-        console.log("¡Checkin fue clicado desde XML!");
-        console.log("Información del registro asociado:", record);
+    // LA MEJOR MANERA DE COMBINAR XML Y JS EN ESTE CASO ES PASAR EL ID DEL REGISTRO.
+    // Volviendo al XML, si puedes hacer esto:
+    // <button type="button" class="btn btn-primary ms-2 o-map-renderer--popup-buttons-my-button" t-on-click="(e) => onMyButtonClick(record.id)">
+    //     <span>Checkin</span>
+    // </button>
+    // Entonces tu JS sería:
+    async onMyButtonClick(recordId) { // Ahora recibe el ID directamente
+        console.log("¡Checkin fue clicado!");
+        console.log("ID del registro asociado:", recordId);
 
-        if (!record || !record.id) {
+        if (!recordId) {
             this.notification.add(_t("No se pudo obtener la información de la tarea para realizar el check-in."), {
                 type: "danger",
             });
@@ -126,9 +131,9 @@ patch(MapRenderer.prototype, {
 
         try {
             const result = await this.orm.call(
-                'project.task', // Modelo
-                'get_location_button', // Método Python a llamar
-                [record.id] // Argumentos: El ID de la tarea
+                'project.task',
+                'get_location_button',
+                [recordId] // Pasa el ID
             );
 
             if (result && result.type === 'ir.actions.client') {
@@ -139,7 +144,6 @@ patch(MapRenderer.prototype, {
                     sticky: false,
                 });
             }
-
         } catch (error) {
             console.error("Error al llamar al método get_location_button:", error);
             this.notification.add(error.message || _t("Ocurrió un error al intentar iniciar el check-in."), {
