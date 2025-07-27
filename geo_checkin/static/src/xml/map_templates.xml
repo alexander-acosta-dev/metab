@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-extend="web_map.markerPopup" t-name="geo_checkin.markerPopupExtension">
+        <xpath expr="//div[hasclass('o-map-renderer--popup-buttons')]" position="inside">
+            <button class="btn btn-primary o-map-renderer--popup-buttons-my-button ms-2" t-on-click="onCheckinButtonClick">
+                Checkin
+            </button>
+        </xpath>
+    </t>
+
+</templates>

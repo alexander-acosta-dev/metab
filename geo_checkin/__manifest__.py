@@ -27,6 +27,7 @@ la visita se realizó en el lugar correcto. Ideal para equipos de ventas en terr
         'web.assets_backend': [
             'geo_checkin/static/src/js/geo_checkin.js',
             'geo_checkin/static/src/map_view/map_renderer.js',
+            'geo_checkin/static/src/xml/map_templates.xml',
         ],
     },
 
