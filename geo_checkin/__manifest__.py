@@ -21,6 +21,7 @@ la visita se realizó en el lugar correcto. Ideal para equipos de ventas en terr
     'data': [
         'security/ir.model.access.csv',
         'views/geo_checkin_view.xml',
+        'static/src/xml/map_templates.xml',
     ],
 
     'assets': {
