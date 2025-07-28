@@ -1,4 +1,4 @@
-/** @odoo-module @geo_checkin/map_view/map_renderer **/
+/** @odoo-module **/
 
 import { MapRenderer } from "@web_map/map_view/map_renderer";
 import { patch } from "@web/core/utils/patch";
