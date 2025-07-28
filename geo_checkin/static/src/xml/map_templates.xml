@@ -2,10 +2,9 @@
 <odoo>
     <data>
         <template id="mi_nuevo_boton_mapa_popover"
-                  inherit_id="web_map.markerPopup"
-                  name="Agregar Botón Personalizado en Popover de Mapa"
+                  inherit_id="web_map.template" name="Agregar Botón Personalizado en Popover de Mapa"
                   customize_show="True">
-            <xpath expr="//div[hasclass('o-map-renderer--popup-buttons')]" position="inside">
+            <xpath expr="//t[@t-name='web_map.markerPopup']//div[hasclass('o-map-renderer--popup-buttons')]" position="inside">
                 <button type="button" style="background-color: red; color: white; padding: 5px 10px; border: none; cursor: pointer; margin-left: 5px;">
                     <span>BOTÓN DE PRUEBA</span>
                 </button>
