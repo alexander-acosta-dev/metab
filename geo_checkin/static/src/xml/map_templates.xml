@@ -5,9 +5,9 @@
                   inherit_id="web_map.markerPopup"
                   name="Agregar Botón Personalizado en Popover de Mapa"
                   customize_show="True">
-            <xpath expr="//div[hasclass('o-map-renderer--popup-buttons')]/a[hasclass('btn-primary')][contains(., 'Navigate to')]" position="after">
-                <button type="button" class="btn btn-primary ms-2 o-map-renderer--popup-buttons-my-button" t-on-click="onMyButtonClick">
-                    <span>Checkin</span>
+            <xpath expr="//div[hasclass('o-map-renderer--popup-buttons')]" position="inside">
+                <button type="button" style="background-color: red; color: white; padding: 5px 10px; border: none; cursor: pointer; margin-left: 5px;">
+                    <span>BOTÓN DE PRUEBA</span>
                 </button>
             </xpath>
         </template>
