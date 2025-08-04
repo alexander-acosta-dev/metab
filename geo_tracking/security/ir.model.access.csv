@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_project_task_user,project.task,project.model_project_task,base.group_user,1,1,1,1
+access_worksheet_template_user,worksheet.template,worksheet.model_worksheet_template,base.group_user,1,1,1,1
+access_res_partner_user,res.partner,base.model_res_partner,base.group_user,1,1,0,0
+access_ir_actions_server_user,ir.actions.server,base.model_ir_actions_server,base.group_user,1,0,0,0
