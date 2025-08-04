@@ -39,6 +39,8 @@
                         <field name="checkin_datetime" readonly="1"/>
                         <field name="checkin_distance_km" readonly="1" 
                                 widget="float" options="{'precision': 3}"/>
+                        <field name="checkin_ip_address" readonly="1"/>
+                        <field name="checkin_is_vpn" readonly="1"/>
                     </group>
                     <div class="oe_button_box" style="text-align: center; margin-top: 20px;">
                         <button string="Registrar Check-In"

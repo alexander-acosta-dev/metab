@@ -5,6 +5,9 @@ import requests
 import unicodedata
 from odoo.exceptions import UserError, ValidationError
 import urllib.parse
+from odoo.http import request
+import IP2Location
+import os
 
 _logger = logging.getLogger(__name__)
 
@@ -16,6 +19,8 @@ class GeoCheckinTask(models.Model):
     checkin_longitude = fields.Float(string="Longitud Check-in", digits=(16, 6), help="Longitud registrada durante el check-in del usuario.")
     checkin_datetime = fields.Datetime(string="Fecha Check-in", help="Fecha y hora en que se realizó el check-in.")
     checkin_distance_km = fields.Float(string="Distancia al Cliente (km)", digits=(8, 2), help="Distancia en kilómetros entre la ubicación del check-in y la ubicación del cliente.")
+    checkin_ip_address = fields.Char(string="Dirección IP de Check-in", readonly=True)
+    checkin_is_vpn = fields.Boolean(string="Check-in con VPN", readonly=True)
 
     # Campos Check-out
     checkout_latitude = fields.Float(string="Latitud Check-out", digits=(16, 6), help="Latitud registrada durante el check-out del usuario.")
@@ -71,6 +76,26 @@ class GeoCheckinTask(models.Model):
 
         if task.checkin_datetime:
             raise UserError(_("Ya se ha realizado el check-in para esta tarea."))
+
+        # Get user's IP address
+        ip_address = request.httprequest.remote_addr
+        is_vpn = False
+
+        # IP2Location check
+        try:
+            # La base de datos BIN se encuentra en el directorio del módulo.
+            db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'IP-PROXYTYPE-PX1.BIN')
+            ip2loc = IP2Location.IP2Location(db_path)
+            rec = ip2loc.get_all(ip_address)
+            if rec:
+                is_vpn = rec.is_vpn
+        except Exception as e:
+            _logger.error(f"Error con IP2Location: {e}")
+            # No bloquear el check-in si falla la verificación de IP, solo registrar el error.
+            pass
+
+        if is_vpn:
+            raise UserError(_("No se puede realizar el check-in mientras se utiliza una VPN."))
 
         latitude = location_data.get('latitude')
         longitude = location_data.get('longitude')
@@ -130,6 +155,8 @@ class GeoCheckinTask(models.Model):
             'checkin_datetime': fields.Datetime.now(),
             'checkin_distance_km': distance_km,
             'checkin_status': 'checked_in',
+            'checkin_ip_address': ip_address,
+            'checkin_is_vpn': is_vpn,
         })
 
         _logger.info(f"Check-in exitoso para la tarea {task.name}")
