@@ -23,7 +23,7 @@ class GeoCheckoutTask(models.Model):
     visit_duration_formatted = fields.Char(
         string="Duración Formateada",
         compute="_compute_visit_duration_formatted",
-        help="Duración de la visita en formato HH:MM"
+        help="Duración de la visita en formato MM:SS"
     )
 
     @api.depends('checkin_datetime', 'checkout_datetime')
@@ -38,12 +38,13 @@ class GeoCheckoutTask(models.Model):
 
     @api.depends('visit_duration')
     def _compute_visit_duration_formatted(self):
-        """Calcula la duración formateada en HH:MM"""
+        """Calcula la duración formateada en MM:SS"""
         for record in self:
             if record.visit_duration > 0:
-                hours = int(record.visit_duration)
-                minutes = int((record.visit_duration - hours) * 60)
-                record.visit_duration_formatted = f"{hours:02d}:{minutes:02d}"
+                total_seconds = record.visit_duration * 3600
+                minutes = int(total_seconds / 60)
+                seconds = int(total_seconds % 60)
+                record.visit_duration_formatted = f"{minutes:02d}:{seconds:02d}"
             else:
                 record.visit_duration_formatted = "00:00"
 
