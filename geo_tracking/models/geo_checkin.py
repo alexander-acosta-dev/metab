@@ -35,11 +35,11 @@ class GeoCheckinTask(models.Model):
         ('checked_out', 'Check-out Realizado')
     ], string="Estado", default='none', help="Estado actual del check-in/out")
 
-    # NUEVOS CAMPOS: Información de seguridad del check-in
+    # Campos de seguridad del check-in
     checkin_ip = fields.Char(string="IP Check-in", help="Dirección IP desde la que se realizó el check-in")
-    checkin_security_flags = fields.Text(string="Banderas de Seguridad", help="Información de seguridad detectada durante el check-in")
+    checkin_security_flags = fields.Text(string="Banderas de Seguridad Check-in", help="Información de seguridad detectada durante el check-in")
     checkin_blocked = fields.Boolean(string="Check-in Bloqueado", default=False, help="Indica si el check-in fue bloqueado por razones de seguridad")
-    checkin_block_reason = fields.Text(string="Razón del Bloqueo", help="Motivo por el cual se bloqueó el check-in")
+    checkin_block_reason = fields.Text(string="Razón del Bloqueo Check-in", help="Motivo por el cual se bloqueó el check-in")
 
     def _validate_security(self):
         """Validar la seguridad de la conexión antes del check-in"""
@@ -104,11 +104,12 @@ class GeoCheckinTask(models.Model):
             raise UserError(_(
                 "🚫 Check-in bloqueado por seguridad\n\n"
                 "Razones detectadas:\n• %s\n\n"
-                "IP: %s\n"
-                "Si crees que esto es un error, contacta al administrador."
+                "IP: %s\n\n"
+                "🔒 Por motivos de seguridad, no se permite el check-in con estas condiciones de red.\n"
+                "💡 Si necesitas usar una conexión específica por motivos laborales, contacta con el administrador del sistema."
             ) % ("\n• ".join(issues), user_ip))
 
-        _logger.info(f"✅ Validación de seguridad exitosa - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
+        _logger.info(f"✅ Validación de seguridad check-in exitosa - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
         return True
 
     def get_location_button(self):
@@ -121,7 +122,7 @@ class GeoCheckinTask(models.Model):
         if self.checkin_datetime:
             raise UserError(_("Ya se ha realizado el check-in para esta tarea."))
 
-        # NUEVO: Validar seguridad antes de proceder
+        # 🔒 VALIDACIÓN DE SEGURIDAD ANTES DE PROCEDER
         self._validate_security()
 
         provider = self.env['base.geocoder']._get_provider().tech_name
@@ -145,14 +146,19 @@ class GeoCheckinTask(models.Model):
     @api.model
     def get_location(self, task_id, location_data):
         """Procesa los datos de ubicación del check-in"""
+        _logger.info("=== INICIANDO CHECK-IN PARA TAREA %s ===", task_id)
+        _logger.info("Location data recibida: %s", location_data)
+        
         task = self.browse(task_id)
         if not task.exists():
+            _logger.error("Tarea %s no encontrada", task_id)
             raise UserError(_("Tarea no encontrada."))
 
         if task.checkin_datetime:
+            _logger.error("Tarea %s ya tiene check-in realizado", task.name)
             raise UserError(_("Ya se ha realizado el check-in para esta tarea."))
 
-        # NUEVO: Validar seguridad nuevamente antes de procesar ubicación
+        # 🔒 VALIDACIÓN DE SEGURIDAD CRÍTICA ANTES DE PROCESAR
         task._validate_security()
 
         latitude = location_data.get('latitude')
@@ -168,6 +174,7 @@ class GeoCheckinTask(models.Model):
                  latitude, longitude, accuracy, task.name)
 
         if accuracy and accuracy > 200:
+            _logger.warning("Precisión baja check-in: %.3f m", accuracy)
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
@@ -187,7 +194,7 @@ class GeoCheckinTask(models.Model):
 
             distance_km = task._haversine(client_lat, client_lon, latitude, longitude)
 
-            _logger.info(f"Distancia calculada: {distance_km:.3f} km")
+            _logger.info(f"Distancia calculada check-in: {distance_km:.3f} km")
 
             # Validar que esté dentro del rango permitido (100 metros)
             if distance_km > 0.10:
@@ -207,10 +214,11 @@ class GeoCheckinTask(models.Model):
             distance_km = 0.0
 
         # Guardar los datos del check-in
+        checkin_time = fields.Datetime.now()
         task.write({
             'checkin_latitude': latitude,
             'checkin_longitude': longitude,
-            'checkin_datetime': fields.Datetime.now(),
+            'checkin_datetime': checkin_time,
             'checkin_distance_km': distance_km,
             'checkin_status': 'checked_in',
             'checkin_blocked': False,  # Marcar como no bloqueado si llegó hasta aquí
@@ -255,7 +263,7 @@ class GeoCheckinTask(models.Model):
             'checkin_block_reason': False
         })
         
-        _logger.info(f"🔓 Bloqueo de seguridad reseteado por admin - Tarea: {self.name}, Admin: {self.env.user.name}")
+        _logger.info(f"🔓 Bloqueo de seguridad check-in reseteado por admin - Tarea: {self.name}, Admin: {self.env.user.name}")
 
     def view_security_details(self):
         """Ver detalles de seguridad del check-in"""
@@ -265,10 +273,9 @@ class GeoCheckinTask(models.Model):
         
         return {
             'type': 'ir.actions.act_window',
-            'name': f'Detalles de Seguridad - {self.name}',
+            'name': f'Detalles de Seguridad Check-in - {self.name}',
             'res_model': 'project.task',
             'res_id': self.id,
             'view_mode': 'form',
-            'view_id': self.env.ref('tu_modulo.view_task_security_details').id,  # Crear esta vista
             'target': 'new',
         }
