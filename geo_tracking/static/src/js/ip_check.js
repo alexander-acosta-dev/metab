@@ -10,13 +10,10 @@ whenReady(() => {
     // Usar el servicio RPC optimizado de Odoo 18
     rpc("/check/ipdetective", {
         timezone: timezone
-    }, {
-        // Opciones adicionales para Odoo 18
-        silent: true, // No mostrar spinner de loading
-        timeout: 10000 // Timeout de 10 segundos
     }).then(function (data) {
-        if (!data) {
-            console.warn("No se recibió respuesta del servidor IPDetective");
+        // Verificar si la respuesta es válida
+        if (!data || typeof data !== 'object') {
+            console.warn("Respuesta inválida del servidor IPDetective:", data);
             return;
         }
 
@@ -77,8 +74,10 @@ whenReady(() => {
         // Manejo de errores mejorado
         console.error("Error verificando IP:", error);
         
-        // Solo mostrar error si no es un problema de red común
-        if (error.type !== 'network' && error.status !== 0) {
+        // Verificar si es un error de parsing JSON
+        if (error.message && error.message.includes("Extra data")) {
+            console.warn("El servidor devolvió una respuesta con formato incorrecto. Verifica el controlador '/check/ipdetective'");
+        } else if (error.type !== 'network' && error.status !== 0) {
             console.warn("No se pudo verificar la seguridad de la conexión IP");
         }
     });
