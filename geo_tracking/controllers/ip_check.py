@@ -156,6 +156,12 @@ class IPCheckController(http.Controller):
             
             # IPs locales/privadas - no verificar
             if user_ip.startswith(('127.', '192.168.', '10.', '172.')):
+                # Para IPs locales, limpiar las banderas de sesión
+                request.session.pop('vpn_detectado', None)
+                request.session.pop('proxy_detectado', None)
+                request.session.pop('datacenter_detectado', None)
+                request.session.pop('timezone_mismatch', None)
+                
                 return {
                     'ip': user_ip,
                     'status': 'local_ip',
@@ -177,6 +183,10 @@ class IPCheckController(http.Controller):
                     cached_result.get('geo_timezone') != timezone 
                     if cached_result.get('geo_timezone') and timezone else False
                 )
+                
+                # CRÍTICO: Actualizar variables de sesión con datos del cache
+                self._update_session_flags(cached_result)
+                
                 return cached_result
             
             # Lista de APIs para intentar
@@ -217,6 +227,9 @@ class IPCheckController(http.Controller):
                         'status': 'success'
                     }
                     
+                    # CRÍTICO: Guardar banderas de seguridad en la sesión
+                    self._update_session_flags(result)
+                    
                     # Guardar en cache
                     self._cache_result(user_ip, result)
                     
@@ -228,7 +241,12 @@ class IPCheckController(http.Controller):
                     _logger.warning(f"⚠️ API {i} falló: {e}")
                     continue
             
-            # Si todas fallaron
+            # Si todas fallaron - limpiar banderas por seguridad
+            request.session.pop('vpn_detectado', None)
+            request.session.pop('proxy_detectado', None) 
+            request.session.pop('datacenter_detectado', None)
+            request.session.pop('timezone_mismatch', None)
+            
             error_msg = f"Todas las APIs fallaron. Último error: {last_error}"
             _logger.error(f"💥 {error_msg}")
             return {
@@ -238,9 +256,44 @@ class IPCheckController(http.Controller):
             }
             
         except Exception as e:
+            # En caso de error crítico, limpiar todas las banderas
+            request.session.pop('vpn_detectado', None)
+            request.session.pop('proxy_detectado', None)
+            request.session.pop('datacenter_detectado', None) 
+            request.session.pop('timezone_mismatch', None)
+            
             error_msg = f"Error crítico: {str(e)}"
             _logger.error(f"🚨 {error_msg}")
             return {
                 'error': error_msg,
                 'status': 'critical_error'
             }
+    
+    def _update_session_flags(self, result):
+        """Actualizar las banderas de sesión basadas en los resultados"""
+        try:
+            # Establecer banderas en la sesión
+            request.session['vpn_detectado'] = result.get('vpn', False)
+            request.session['proxy_detectado'] = result.get('proxy', False)  
+            request.session['datacenter_detectado'] = result.get('datacenter', False)
+            request.session['timezone_mismatch'] = result.get('timezone_mismatch', False)
+            
+            # Log para debugging
+            _logger.info(f"🔒 Banderas de sesión actualizadas - VPN: {request.session.get('vpn_detectado')}, "
+                        f"Proxy: {request.session.get('proxy_detectado')}, "
+                        f"DC: {request.session.get('datacenter_detectado')}, "
+                        f"TZ: {request.session.get('timezone_mismatch')}")
+                        
+        except Exception as e:
+            _logger.error(f"❌ Error actualizando banderas de sesión: {str(e)}")
+    
+    @http.route('/check/session_status', type='json', auth="user", methods=['POST'])
+    def get_session_status(self):
+        """Endpoint para verificar el estado actual de la sesión"""
+        return {
+            'vpn_detectado': request.session.get('vpn_detectado', False),
+            'proxy_detectado': request.session.get('proxy_detectado', False),
+            'datacenter_detectado': request.session.get('datacenter_detectado', False), 
+            'timezone_mismatch': request.session.get('timezone_mismatch', False),
+            'session_id': request.session.sid
+        }
