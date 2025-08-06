@@ -100,7 +100,10 @@ function getGeolocationClientAction(env, action) {
 }
 
 // Registrar la acción cliente correctamente
-registry.category('actions').add('get_geolocation_from_browser', getGeolocationClientAction);
+if (!registry.category('actions').has('get_geolocation_from_browser')) {
+    registry.category('actions').add('get_geolocation_from_browser', getGeolocationClientAction);
+}
+
 
 // Extender el FormController para mejorar la experiencia
 export class GeoCheckinFormController extends FormController {
