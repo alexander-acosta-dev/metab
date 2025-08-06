@@ -26,6 +26,7 @@ Funcionalidades:
         #'views/worksheet_checkin_view.xml', 
         'views/geo_checkout_view.xml',
         'views/worksheet_checkout_view.xml',
+        'views/assets.xml',
     ],
     'assets': {
         'web.assets_backend': [
