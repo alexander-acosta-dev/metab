@@ -99,8 +99,10 @@ function getGeolocationClientAction(env, action) {
     });
 }
 
-// Registrar la acción cliente correctamente (removido el 0 al final)
-registry.category('actions').add('get_geolocation_from_browser', getGeolocationClientAction);
+// Registrar la acción cliente con verificación de existencia
+if (!registry.category('actions').contains('get_geolocation_from_browser')) {
+    registry.category('actions').add('get_geolocation_from_browser', getGeolocationClientAction);
+}
 
 // Extender el FormController para mejorar la experiencia
 export class GeoCheckinFormController extends FormController {
@@ -126,7 +128,7 @@ export class GeoCheckinFormController extends FormController {
 
 // Registrar el controlador personalizado con verificación
 const formView = registry.category("views").get("form");
-if (formView) {
+if (formView && !registry.category("views").contains("geo_checkin_form")) {
     registry.category("views").add("geo_checkin_form", {
         ...formView,
         Controller: GeoCheckinFormController,
