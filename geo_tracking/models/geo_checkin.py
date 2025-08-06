@@ -6,7 +6,7 @@ import unicodedata
 from odoo.exceptions import UserError, ValidationError
 import urllib.parse
 from odoo.http import request
-import IP2Location
+from IP2Proxy import IP2Proxy
 import os
 
 _logger = logging.getLogger(__name__)
@@ -81,21 +81,30 @@ class GeoCheckinTask(models.Model):
         ip_address = request.httprequest.remote_addr
         is_vpn = False
 
-        # IP2Location check
+        # IP2Proxy check
         try:
             # La base de datos BIN se encuentra en el directorio del módulo.
-            db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'IP-PROXYTYPE-PX1.BIN')
-            ip2loc = IP2Location.IP2Location(db_path)
-            rec = ip2loc.get_all(ip_address)
+            db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'IP2PROXY-LITE-PX12.BIN')
+            ip2proxy = IP2Proxy.IP2Proxy(db_path)
+            rec = ip2proxy.get_all(ip_address)
             if rec:
-                is_vpn = rec.is_vpn
+                is_vpn = rec['is_vpn']
         except Exception as e:
-            _logger.error(f"Error con IP2Location: {e}")
+            _logger.error(f"Error con IP2Proxy: {e}")
             # No bloquear el check-in si falla la verificación de IP, solo registrar el error.
             pass
 
         if is_vpn:
-            raise UserError(_("No se puede realizar el check-in mientras se utiliza una VPN."))
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Advertencia de VPN'),
+                    'message': _('Se ha detectado el uso de una VPN. El check-in continuará, pero se registrará esta advertencia.'),
+                    'type': 'warning',
+                    'sticky': True,
+                }
+            }
 
         latitude = location_data.get('latitude')
         longitude = location_data.get('longitude')
@@ -132,7 +141,7 @@ class GeoCheckinTask(models.Model):
             _logger.info(f"Distancia calculada: {distance_km:.3f} km")
 
             # Validar que esté dentro del rango permitido (100 metros)
-            if distance_km > 0.10:
+            if distance_km > 0.30:
                 _logger.warning(f"Check-in fuera de rango para la tarea {task.name}. Distancia: {distance_km:.3f} km.")
                 return {
                     'type': 'ir.actions.client',
