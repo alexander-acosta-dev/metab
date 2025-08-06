@@ -1,34 +1,42 @@
-# -*- coding: utf-8 -*-
 {
-    'name': "geo_tracking",
-
-    'summary': "Short (1 phrase/line) summary of the module's purpose",
-
+    'name': 'Geo Tracking',
+    'summary': 'Registro de check-in y check-out georreferenciado para vendedores en visitas a clientes',
     'description': """
-Long description of module's purpose
-    """,
+Este módulo permite a los vendedores registrar un check-in georreferenciado directamente desde su dispositivo móvil o navegador 
+al visitar a un cliente. La ubicación capturada se almacena junto a la tarea a realizar, permitiendo verificar que 
+la visita se realizó en el lugar correcto. Ideal para equipos de ventas en terreno.
 
-    'author': "My Company",
-    'website': "https://www.yourcompany.com",
-
-    # Categories can be used to filter modules in modules listing
-    # Check https://github.com/odoo/odoo/blob/15.0/odoo/addons/base/data/ir_module_category_data.xml
-    # for the full list
-    'category': 'Uncategorized',
-    'version': '0.1',
-
-    # any module necessary for this one to work correctly
-    'depends': ['base'],
-
-    # always loaded
+Funcionalidades:
+- Check-in y Check-out desde formulario de tareas
+- Check-in y Check-out desde vista de mapa
+- Check-in y Check-out desde worksheet (hoja de trabajo) de Field Service
+""",
+    'author': 'Sellside SPA*',
+    'website': 'https://www.sellside.cl',
+    'category': 'Services/Field Service',
+    'version': '0.2',
+    'license': 'LGPL-3',
+    'depends': [
+        'base', 'project', 'industry_fsm', 'web', 'web_map', 'industry_fsm_report',
+    ],
     'data': [
-        # 'security/ir.model.access.csv',
-        'views/views.xml',
-        'views/templates.xml',
+        'security/ir.model.access.csv',
+        'views/geo_checkin_view.xml',
+        'views/worksheet_checkin_template.xml',
+        #'views/worksheet_checkin_view.xml', 
+        'views/geo_checkout_view.xml',
+        'views/worksheet_checkout_view.xml',
     ],
-    # only loaded in demonstration mode
-    'demo': [
-        'demo/demo.xml',
-    ],
+    'assets': {
+        'web.assets_backend': [
+            'web_map/static/src/map_view/map_renderer.js',
+            'geo_tracking/static/src/js/geo_checkin.js',
+            'geo_tracking/static/src/js/geo_checkout.js',
+            'geo_tracking/static/src/js/ip_check.js',
+            'geo_tracking/static/src/map_view/map_renderer.js',
+        ],
+    },
+    'installable': True,
+    'application': False,
+    'auto_install': False,
 }
-
