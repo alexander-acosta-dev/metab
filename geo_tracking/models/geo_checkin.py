@@ -1,4 +1,5 @@
-from odoo import models, fields, api, _
+# -*- coding: utf-8 -*-
+from odoo import models, fields, api, _, http
 from math import radians, cos, sin, asin, sqrt
 import logging
 import requests
@@ -6,6 +7,7 @@ import unicodedata
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 import urllib.parse
+from datetime import datetime, timedelta
 
 _logger = logging.getLogger(__name__)
 
@@ -41,30 +43,21 @@ class GeoCheckinTask(models.Model):
     checkin_blocked = fields.Boolean(string="Check-in Bloqueado", default=False, help="Indica si el check-in fue bloqueado por razones de seguridad")
     checkin_block_reason = fields.Text(string="Razón del Bloqueo Check-in", help="Motivo por el cual se bloqueó el check-in")
 
-    def _validate_security(self):
-        """Validar la seguridad de la conexión antes del check-in"""
-        if not hasattr(request, 'session'):
-            _logger.warning("❌ No hay sesión HTTP disponible para validar seguridad")
-            return True  # En contexto no-HTTP, permitir
+    def _validate_security(self, user_ip):
+        """Validar la seguridad de la conexión antes del check-in, recibiendo IP como parámetro."""
+        
+        # Obtener información de la IP a través del controlador
+        try:
+            ip_info = self.env['ip_check.controller']._check_ip_and_flags(user_ip)
+        except Exception as e:
+            _logger.error(f"Error al obtener información de seguridad de la IP: {e}")
+            ip_info = {}
 
-        # Obtener las banderas de la sesión
-        vpn_detectado = request.session.get('vpn_detectado', False)
-        proxy_detectado = request.session.get('proxy_detectado', False)
-        datacenter_detectado = request.session.get('datacenter_detectado', False)
-        timezone_mismatch = request.session.get('timezone_mismatch', False)
+        vpn_detectado = ip_info.get('vpn_detectado', False)
+        proxy_detectado = ip_info.get('proxy_detectado', False)
+        datacenter_detectado = ip_info.get('datacenter_detectado', False)
+        timezone_mismatch = ip_info.get('timezone_mismatch', False)
 
-        # Obtener IP del usuario
-        user_ip = "unknown"
-        if hasattr(request, 'httprequest'):
-            user_ip = request.httprequest.environ.get('HTTP_X_FORWARDED_FOR')
-            if user_ip and ',' in user_ip:
-                user_ip = user_ip.split(',')[0].strip()
-            if not user_ip:
-                user_ip = request.httprequest.environ.get('HTTP_X_REAL_IP')
-            if not user_ip:
-                user_ip = request.httprequest.remote_addr
-
-        # Crear lista de issues detectados
         issues = []
         if vpn_detectado:
             issues.append("VPN detectado")
@@ -75,7 +68,6 @@ class GeoCheckinTask(models.Model):
         if timezone_mismatch:
             issues.append("Zona horaria no coincide")
 
-        # Guardar información de seguridad
         security_info = {
             'ip': user_ip,
             'vpn': vpn_detectado,
@@ -90,17 +82,13 @@ class GeoCheckinTask(models.Model):
             'checkin_security_flags': str(security_info)
         })
 
-        # Si hay problemas de seguridad, bloquear
         if issues:
             block_reason = f"Check-in bloqueado por conexión sospechosa: {', '.join(issues)}"
-            
             self.write({
                 'checkin_blocked': True,
                 'checkin_block_reason': block_reason
             })
-            
             _logger.warning(f"🚫 {block_reason} - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
-            
             raise UserError(_(
                 "🚫 Check-in bloqueado por seguridad\n\n"
                 "Razones detectadas:\n• %s\n\n"
@@ -122,14 +110,24 @@ class GeoCheckinTask(models.Model):
         if self.checkin_datetime:
             raise UserError(_("Ya se ha realizado el check-in para esta tarea."))
 
+        # Obtener IP del usuario ANTES de la validación
+        user_ip = "unknown"
+        if hasattr(request, 'httprequest'):
+            user_ip = request.httprequest.environ.get('HTTP_X_FORWARDED_FOR')
+            if user_ip and ',' in user_ip:
+                user_ip = user_ip.split(',')[0].strip()
+            if not user_ip:
+                user_ip = request.httprequest.environ.get('HTTP_X_REAL_IP')
+            if not user_ip:
+                user_ip = request.httprequest.remote_addr
+
         # 🔒 VALIDACIÓN DE SEGURIDAD ANTES DE PROCEDER
-        self._validate_security()
+        self._validate_security(user_ip)
 
         provider = self.env['base.geocoder']._get_provider().tech_name
         _logger.info(f"Geolocalización realizada por el proveedor: {provider}")
         self.partner_id.geo_localize()
         
-        # Verificar que el cliente tenga coordenadas
         if not (self.partner_id.partner_latitude and self.partner_id.partner_longitude):
             raise UserError(_("El cliente no tiene coordenadas geográficas. Primero actualiza las coordenadas del cliente usando el botón 'Actualizar Coordenadas Cliente'."))
         
@@ -159,7 +157,7 @@ class GeoCheckinTask(models.Model):
             raise UserError(_("Ya se ha realizado el check-in para esta tarea."))
 
         # 🔒 VALIDACIÓN DE SEGURIDAD CRÍTICA ANTES DE PROCESAR
-        task._validate_security()
+        # Ya se hizo la validación en get_location_button, no es necesario repetirla aquí.
 
         latitude = location_data.get('latitude')
         longitude = location_data.get('longitude')
@@ -171,7 +169,7 @@ class GeoCheckinTask(models.Model):
             raise UserError(_("No se pudo obtener la ubicación del dispositivo. Asegúrate de que los servicios de ubicación estén activados."))
 
         _logger.info("Coordenadas de check-in recibidas: (%s, %s) con precisión de %s metros para la tarea %s",
-                 latitude, longitude, accuracy, task.name)
+                      latitude, longitude, accuracy, task.name)
 
         if accuracy and accuracy > 200:
             _logger.warning("Precisión baja check-in: %.3f m", accuracy)
@@ -196,7 +194,6 @@ class GeoCheckinTask(models.Model):
 
             _logger.info(f"Distancia calculada check-in: {distance_km:.3f} km")
 
-            # Validar que esté dentro del rango permitido (100 metros)
             if distance_km > 0.10:
                 _logger.warning(f"Check-in fuera de rango para la tarea {task.name}. Distancia: {distance_km:.3f} km.")
                 return {
@@ -213,7 +210,6 @@ class GeoCheckinTask(models.Model):
             _logger.warning(f"La tarea {task.name} no tiene coordenadas del cliente válidas.")
             distance_km = 0.0
 
-        # Guardar los datos del check-in
         checkin_time = fields.Datetime.now()
         task.write({
             'checkin_latitude': latitude,
@@ -221,7 +217,7 @@ class GeoCheckinTask(models.Model):
             'checkin_datetime': checkin_time,
             'checkin_distance_km': distance_km,
             'checkin_status': 'checked_in',
-            'checkin_blocked': False,  # Marcar como no bloqueado si llegó hasta aquí
+            'checkin_blocked': False, 
         })
 
         _logger.info(f"✅ Check-in exitoso para la tarea {task.name} - Usuario: {task.env.user.name}")
@@ -233,36 +229,24 @@ class GeoCheckinTask(models.Model):
 
     def _haversine(self, lat1, lon1, lat2, lon2):
         """Fórmula de Haversine para calcular distancia entre 2 coordenadas en km."""
-        R = 6371.0  # radio de la Tierra en km
-
-        # Conversión de grados a radianes
+        R = 6371.0
         lat1, lon1 = radians(float(lat1)), radians(float(lon1))
         lat2, lon2 = radians(float(lat2)), radians(float(lon2))
-
-        # Diferencia entre las latitudes y longitudes en radianes
         dlat = lat2 - lat1
         dlon = lon2 - lon1
-
-        # Fórmula de Haversine
         a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
         c = 2 * asin(sqrt(a))
-
-        # Retorno de la distancia en Km
         return R * c
-
-    # MÉTODOS AUXILIARES PARA ADMINISTRACIÓN
 
     def reset_security_block(self):
         """Resetear bloqueo de seguridad (solo administradores)"""
         self.ensure_one()
         if not self.env.user.has_group('base.group_system'):
             raise UserError(_("Solo los administradores pueden resetear bloqueos de seguridad."))
-        
         self.write({
             'checkin_blocked': False,
             'checkin_block_reason': False
         })
-        
         _logger.info(f"🔓 Bloqueo de seguridad check-in reseteado por admin - Tarea: {self.name}, Admin: {self.env.user.name}")
 
     def view_security_details(self):
@@ -270,7 +254,6 @@ class GeoCheckinTask(models.Model):
         self.ensure_one()
         if not self.checkin_security_flags:
             raise UserError(_("No hay información de seguridad registrada para esta tarea."))
-        
         return {
             'type': 'ir.actions.act_window',
             'name': f'Detalles de Seguridad Check-in - {self.name}',

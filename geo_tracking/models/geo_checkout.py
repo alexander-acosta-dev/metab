@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=C0325,W0613
 
-from odoo import models, fields, api, _
+from odoo import models, fields, api, _, http
 from odoo.exceptions import UserError
 from odoo.http import request
 import logging
 from math import radians, cos, sin, asin, sqrt
 
 _logger = logging.getLogger(__name__)
-
 
 class GeoCheckoutTask(models.Model):
     _inherit = 'project.task'
@@ -54,30 +53,20 @@ class GeoCheckoutTask(models.Model):
             else:
                 record.visit_duration_formatted = "00:00"
 
-    def _validate_checkout_security(self):
-        """Validar la seguridad de la conexión antes del check-out"""
-        if not hasattr(request, 'session'):
-            _logger.warning("❌ No hay sesión HTTP disponible para validar seguridad en check-out")
-            return True  # En contexto no-HTTP, permitir
+    def _validate_checkout_security(self, user_ip):
+        """Validar la seguridad de la conexión antes del check-out, recibiendo IP como parámetro."""
+        
+        try:
+            ip_info = self.env['ip_check.controller']._check_ip_and_flags(user_ip)
+        except Exception as e:
+            _logger.error(f"Error al obtener información de seguridad de la IP en check-out: {e}")
+            ip_info = {}
 
-        # Obtener las banderas de la sesión
-        vpn_detectado = request.session.get('vpn_detectado', False)
-        proxy_detectado = request.session.get('proxy_detectado', False)
-        datacenter_detectado = request.session.get('datacenter_detectado', False)
-        timezone_mismatch = request.session.get('timezone_mismatch', False)
+        vpn_detectado = ip_info.get('vpn_detectado', False)
+        proxy_detectado = ip_info.get('proxy_detectado', False)
+        datacenter_detectado = ip_info.get('datacenter_detectado', False)
+        timezone_mismatch = ip_info.get('timezone_mismatch', False)
 
-        # Obtener IP del usuario
-        user_ip = "unknown"
-        if hasattr(request, 'httprequest'):
-            user_ip = request.httprequest.environ.get('HTTP_X_FORWARDED_FOR')
-            if user_ip and ',' in user_ip:
-                user_ip = user_ip.split(',')[0].strip()
-            if not user_ip:
-                user_ip = request.httprequest.environ.get('HTTP_X_REAL_IP')
-            if not user_ip:
-                user_ip = request.httprequest.remote_addr
-
-        # Crear lista de issues detectados
         issues = []
         if vpn_detectado:
             issues.append("VPN detectado")
@@ -88,7 +77,6 @@ class GeoCheckoutTask(models.Model):
         if timezone_mismatch:
             issues.append("Zona horaria no coincide")
 
-        # Guardar información de seguridad del check-out
         security_info = {
             'ip': user_ip,
             'vpn': vpn_detectado,
@@ -103,7 +91,6 @@ class GeoCheckoutTask(models.Model):
             'checkout_security_flags': str(security_info)
         })
 
-        # Si hay problemas de seguridad, bloquear
         if issues:
             block_reason = f"Check-out bloqueado por conexión sospechosa: {', '.join(issues)}"
             
@@ -138,14 +125,24 @@ class GeoCheckoutTask(models.Model):
         if self.checkout_datetime:
             raise UserError(_("Ya se ha realizado el check-out para esta tarea."))
 
+        # Obtener IP del usuario ANTES de la validación
+        user_ip = "unknown"
+        if hasattr(request, 'httprequest'):
+            user_ip = request.httprequest.environ.get('HTTP_X_FORWARDED_FOR')
+            if user_ip and ',' in user_ip:
+                user_ip = user_ip.split(',')[0].strip()
+            if not user_ip:
+                user_ip = request.httprequest.environ.get('HTTP_X_REAL_IP')
+            if not user_ip:
+                user_ip = request.httprequest.remote_addr
+
         # 🔒 VALIDACIÓN DE SEGURIDAD ANTES DE PROCEDER
-        self._validate_checkout_security()
+        self._validate_checkout_security(user_ip)
 
         provider = self.env['base.geocoder']._get_provider().tech_name
         _logger.info("Geolocalización realizada por el proveedor: %s", provider)
         self.partner_id.geo_localize()
 
-        # Verificar que el cliente tenga coordenadas
         if not (self.partner_id.partner_latitude and self.partner_id.partner_longitude):
             raise UserError(_("El cliente no tiene coordenadas geográficas. Primero actualiza las coordenadas del cliente."))
 
@@ -171,11 +168,6 @@ class GeoCheckoutTask(models.Model):
             _logger.error("Tarea %s no encontrada", task_id)
             raise UserError(_("Tarea no encontrada."))
 
-        # 🔒 VALIDACIÓN DE SEGURIDAD CRÍTICA ANTES DE PROCESAR
-        task._validate_checkout_security()
-
-        _logger.info("Tarea encontrada: %s", task.name)
-
         if not task.checkin_datetime:
             _logger.error("Tarea %s no tiene check-in previo", task.name)
             raise UserError(_("No se puede hacer check-out sin haber hecho check-in primero."))
@@ -183,6 +175,8 @@ class GeoCheckoutTask(models.Model):
         if task.checkout_datetime:
             _logger.error("Tarea %s ya tiene check-out realizado", task.name)
             raise UserError(_("Ya se ha realizado el check-out para esta tarea."))
+
+        # Ya se hizo la validación en get_checkout_location_button, no es necesario repetirla aquí.
 
         latitude = location_data.get('latitude')
         longitude = location_data.get('longitude')
@@ -213,7 +207,6 @@ class GeoCheckoutTask(models.Model):
 
             _logger.info("Distancia calculada en check-out: %.3f km", distance_km)
 
-            # Validar que esté dentro del rango permitido (100 metros)
             if distance_km > 0.10:
                 _logger.warning("Check-out fuera de rango para la tarea %s. Distancia: %.3f km.", task.name, distance_km)
                 return {
@@ -224,7 +217,6 @@ class GeoCheckoutTask(models.Model):
             _logger.warning("La tarea %s no tiene coordenadas del cliente válidas.", task.name)
             distance_km = 0.0
 
-        # Guardar los datos del check-out
         checkout_time = fields.Datetime.now()
         task.write({
             'checkout_latitude': latitude,
@@ -232,7 +224,7 @@ class GeoCheckoutTask(models.Model):
             'checkout_datetime': checkout_time,
             'checkout_distance_km': distance_km,
             'checkin_status': 'checked_out',
-            'checkout_blocked': False,  # Marcar como no bloqueado si llegó hasta aquí
+            'checkout_blocked': False,
         })
 
         _logger.info("✅ Check-out exitoso para la tarea %s. Duración de visita: %s", task.name, task.visit_duration_formatted)
@@ -244,24 +236,14 @@ class GeoCheckoutTask(models.Model):
 
     def _haversine(self, lat1, lon1, lat2, lon2):
         """Fórmula de Haversine para calcular distancia entre 2 coordenadas en km."""
-        R = 6371.0  # radio de la Tierra en km
-
-        # Conversión de grados a radianes
+        R = 6371.0
         lat1, lon1 = radians(float(lat1)), radians(float(lon1))
         lat2, lon2 = radians(float(lat2)), radians(float(lon2))
-
-        # Diferencia entre las latitudes y longitudes en radianes
         dlat = lat2 - lat1
         dlon = lon2 - lon1
-
-        # Fórmula de Haversine
         a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
         c = 2 * asin(sqrt(a))
-
-        # Retorno de la distancia en Km
         return R * c
-
-    # MÉTODOS AUXILIARES PARA ADMINISTRACIÓN
 
     def reset_checkout_security_block(self):
         """Resetear bloqueo de seguridad del check-out (solo administradores)"""

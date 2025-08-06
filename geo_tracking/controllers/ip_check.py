@@ -25,10 +25,9 @@ class IPCheckController(http.Controller):
     def _cache_result(self, ip, data):
         """Guardar resultado en cache"""
         self._ip_cache[ip] = (data, datetime.now().timestamp())
-        # Limpiar cache antiguo (mantener solo últimas 100 IPs)
         if len(self._ip_cache) > 100:
             oldest_ip = min(self._ip_cache.keys(), 
-                          key=lambda k: self._ip_cache[k][1])
+                            key=lambda k: self._ip_cache[k][1])
             del self._ip_cache[oldest_ip]
     
     def _check_with_ipapi_com(self, user_ip):
@@ -43,7 +42,6 @@ class IPCheckController(http.Controller):
             if data.get('status') == 'fail':
                 raise Exception(f"IP-API error: {data.get('message')}")
             
-            # Detección mejorada de VPN
             isp_org = f"{data.get('isp', '')} {data.get('org', '')}".lower()
             vpn_indicators = ['vpn', 'proxy', 'tunnel', 'hide', 'anony', 'private', 'secure', 'tor', 'nord', 'express', 'surf']
             is_vpn = any(indicator in isp_org for indicator in vpn_indicators)
@@ -79,7 +77,6 @@ class IPCheckController(http.Controller):
             if data.get('error'):
                 raise Exception(f"IPapi.co error: {data.get('reason')}")
             
-            # Detección VPN/Datacenter mejorada
             org_text = data.get('org', '').lower()
             asn_text = data.get('asn', '').lower()
             
@@ -98,7 +95,7 @@ class IPCheckController(http.Controller):
                 'timezone': data.get('timezone'),
                 'isp': data.get('org'),
                 'asn': data.get('asn'),
-                'proxy': False,  # IPapi.co no reporta proxy directamente
+                'proxy': False,
                 'datacenter': is_datacenter,
                 'vpn': is_vpn,
                 'mobile': False,
@@ -141,159 +138,79 @@ class IPCheckController(http.Controller):
             _logger.error(f"❌ IPapi.is falló: {str(e)}")
             raise
     
+    def _check_ip_and_flags(self, user_ip, timezone=None):
+        """
+        Método auxiliar para ser llamado desde los modelos.
+        Realiza la verificación de la IP y devuelve las banderas de seguridad.
+        """
+        _logger.info(f"🌐 Verificando IP: {user_ip} desde el modelo.")
+        
+        # IPs locales/privadas - no verificar
+        if user_ip.startswith(('127.', '192.168.', '10.', '172.')):
+            return {
+                'vpn_detectado': False,
+                'proxy_detectado': False,
+                'datacenter_detectado': False,
+                'timezone_mismatch': False,
+            }
+
+        ip_info = self._get_cached_result(user_ip)
+        if not ip_info:
+            api_used = "none"
+            try:
+                ip_info = self._check_with_ipapi_is(user_ip)
+                api_used = 'ipapi.is'
+            except Exception as e1:
+                _logger.warning(f"❌ Fallo al verificar con IPapi.is: {e1}")
+                try:
+                    ip_info = self._check_with_ipapi_co(user_ip)
+                    api_used = 'ipapi.co'
+                except Exception as e2:
+                    _logger.warning(f"❌ Fallo al verificar con IPapi.co: {e2}")
+                    try:
+                        ip_info = self._check_with_ipapi_com(user_ip)
+                        api_used = 'ip-api.com'
+                    except Exception as e3:
+                        _logger.warning(f"❌ Fallo al verificar con IP-API.com: {e3}")
+                        ip_info = {'success': False, 'vpn': False, 'proxy': False, 'datacenter': False}
+            
+            if ip_info and ip_info.get('success'):
+                self._cache_result(user_ip, ip_info)
+                _logger.info(f"✅ Verificación exitosa con {api_used} para IP: {user_ip}")
+            else:
+                _logger.error(f"❌ Todas las APIs fallaron para IP: {user_ip}")
+
+        vpn_detectado = ip_info.get('vpn', False)
+        proxy_detectado = ip_info.get('proxy', False)
+        datacenter_detectado = ip_info.get('datacenter', False)
+        timezone_mismatch = False # Considera si quieres implementar esta lógica o dejarla en False
+        
+        return {
+            'vpn_detectado': vpn_detectado,
+            'proxy_detectado': proxy_detectado,
+            'datacenter_detectado': datacenter_detectado,
+            'timezone_mismatch': timezone_mismatch,
+        }
+
     @http.route('/check/ipdetective', type='json', auth="user", methods=['POST'])
-    def check_ip(self, timezone=None):
-        try:
-            # Obtener IP del usuario
+    def check_ip_endpoint(self, timezone=None):
+        """Endpoint para la validación de IP (para uso con clientes JS si es necesario)"""
+        user_ip = "unknown"
+        if hasattr(request, 'httprequest'):
             user_ip = request.httprequest.environ.get('HTTP_X_FORWARDED_FOR')
             if user_ip and ',' in user_ip:
                 user_ip = user_ip.split(',')[0].strip()
-            
             if not user_ip:
                 user_ip = request.httprequest.environ.get('HTTP_X_REAL_IP')
             if not user_ip:
                 user_ip = request.httprequest.remote_addr
-            
-            # IPs locales/privadas - no verificar
-            if user_ip.startswith(('127.', '192.168.', '10.', '172.')):
-                # Para IPs locales, limpiar las banderas de sesión
-                request.session.pop('vpn_detectado', None)
-                request.session.pop('proxy_detectado', None)
-                request.session.pop('datacenter_detectado', None)
-                request.session.pop('timezone_mismatch', None)
-                
-                return {
-                    'ip': user_ip,
-                    'status': 'local_ip',
-                    'vpn': False,
-                    'proxy': False,
-                    'datacenter': False,
-                    'timezone_mismatch': False,
-                    'message': 'IP local/privada - verificación omitida'
-                }
-            
-            _logger.info(f"🔍 Verificando IP: {user_ip}")
-            
-            # Verificar cache primero
-            cached_result = self._get_cached_result(user_ip)
-            if cached_result:
-                # Actualizar timezone check con datos actuales
-                cached_result['browser_timezone'] = timezone
-                cached_result['timezone_mismatch'] = (
-                    cached_result.get('geo_timezone') != timezone 
-                    if cached_result.get('geo_timezone') and timezone else False
-                )
-                
-                # CRÍTICO: Actualizar variables de sesión con datos del cache
-                self._update_session_flags(cached_result)
-                
-                return cached_result
-            
-            # Lista de APIs para intentar
-            api_methods = [
-                self._check_with_ipapi_com,    # Más rápida y confiable
-                self._check_with_ipapi_is,     # Mejor detección de seguridad
-                self._check_with_ipapi_co      # Backup confiable
-            ]
-            
-            # Intentar cada API
-            last_error = None
-            for i, api_method in enumerate(api_methods, 1):
-                try:
-                    _logger.info(f"🔄 Intentando API {i}/3: {api_method.__name__}")
-                    
-                    data = api_method(user_ip)
-                    
-                    # Análisis de timezone
-                    geo_timezone = data.get('timezone', '')
-                    browser_timezone = timezone or ''
-                    timezone_mismatch = geo_timezone != browser_timezone if geo_timezone and browser_timezone else False
-                    
-                    # Resultado final
-                    result = {
-                        'ip': data.get('ip', user_ip),
-                        'country': data.get('country'),
-                        'region': data.get('region'),
-                        'city': data.get('city'),
-                        'isp': data.get('isp'),
-                        'provider': data.get('provider'),
-                        'geo_timezone': geo_timezone,
-                        'browser_timezone': browser_timezone,
-                        'timezone_mismatch': timezone_mismatch,
-                        'vpn': data.get('vpn', False),
-                        'proxy': data.get('proxy', False),
-                        'datacenter': data.get('datacenter', False),
-                        'mobile': data.get('mobile', False),
-                        'status': 'success'
-                    }
-                    
-                    # CRÍTICO: Guardar banderas de seguridad en la sesión
-                    self._update_session_flags(result)
-                    
-                    # Guardar en cache
-                    self._cache_result(user_ip, result)
-                    
-                    _logger.info(f"✅ Éxito con {data.get('provider')}: VPN={result['vpn']}, Proxy={result['proxy']}, DC={result['datacenter']}")
-                    return result
-                    
-                except Exception as e:
-                    last_error = str(e)
-                    _logger.warning(f"⚠️ API {i} falló: {e}")
-                    continue
-            
-            # Si todas fallaron - limpiar banderas por seguridad
-            request.session.pop('vpn_detectado', None)
-            request.session.pop('proxy_detectado', None) 
-            request.session.pop('datacenter_detectado', None)
-            request.session.pop('timezone_mismatch', None)
-            
-            error_msg = f"Todas las APIs fallaron. Último error: {last_error}"
-            _logger.error(f"💥 {error_msg}")
-            return {
-                'error': error_msg,
-                'ip': user_ip,
-                'status': 'api_error'
-            }
-            
-        except Exception as e:
-            # En caso de error crítico, limpiar todas las banderas
-            request.session.pop('vpn_detectado', None)
-            request.session.pop('proxy_detectado', None)
-            request.session.pop('datacenter_detectado', None) 
-            request.session.pop('timezone_mismatch', None)
-            
-            error_msg = f"Error crítico: {str(e)}"
-            _logger.error(f"🚨 {error_msg}")
-            return {
-                'error': error_msg,
-                'status': 'critical_error'
-            }
-    
-    def _update_session_flags(self, result):
-        """Actualizar las banderas de sesión basadas en los resultados"""
-        try:
-            # Establecer banderas en la sesión
-            request.session['vpn_detectado'] = result.get('vpn', False)
-            request.session['proxy_detectado'] = result.get('proxy', False)  
-            request.session['datacenter_detectado'] = result.get('datacenter', False)
-            request.session['timezone_mismatch'] = result.get('timezone_mismatch', False)
-            
-            # Log para debugging
-            _logger.info(f"🔒 Banderas de sesión actualizadas - VPN: {request.session.get('vpn_detectado')}, "
-                        f"Proxy: {request.session.get('proxy_detectado')}, "
-                        f"DC: {request.session.get('datacenter_detectado')}, "
-                        f"TZ: {request.session.get('timezone_mismatch')}")
-                        
-        except Exception as e:
-            _logger.error(f"❌ Error actualizando banderas de sesión: {str(e)}")
-    
-    @http.route('/check/session_status', type='json', auth="user", methods=['POST'])
-    def get_session_status(self):
-        """Endpoint para verificar el estado actual de la sesión"""
-        return {
-            'vpn_detectado': request.session.get('vpn_detectado', False),
-            'proxy_detectado': request.session.get('proxy_detectado', False),
-            'datacenter_detectado': request.session.get('datacenter_detectado', False), 
-            'timezone_mismatch': request.session.get('timezone_mismatch', False),
-            'session_id': request.session.sid
-        }
+        
+        flags = self._check_ip_and_flags(user_ip, timezone)
+        
+        # Almacenar los resultados en la sesión para uso posterior (opcional, pero útil)
+        request.session['vpn_detectado'] = flags.get('vpn_detectado')
+        request.session['proxy_detectado'] = flags.get('proxy_detectado')
+        request.session['datacenter_detectado'] = flags.get('datacenter_detectado')
+        request.session['timezone_mismatch'] = flags.get('timezone_mismatch')
+
+        return {'success': True, 'flags': flags}
