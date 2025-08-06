@@ -1,115 +1,90 @@
-/** @odoo-module **/
+from odoo import http
+from odoo.http import request
+import requests
+import logging
 
-import { rpc } from "@web/core/network/rpc";
-import { whenReady } from "@odoo/owl";
+_logger = logging.getLogger(__name__)
 
-// Ejecutar cuando el DOM esté listo
-whenReady(() => {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    
-    console.log("Iniciando verificación IP con timezone:", timezone);
-    
-    // Usar el servicio RPC de Odoo 18
-    rpc("/check/ipdetective", {
-        timezone: timezone
-    }).then(function (data) {
-        console.log("Respuesta completa del servidor:", data);
-        
-        // Verificar si la respuesta es válida
-        if (!data || typeof data !== 'object') {
-            console.warn("Respuesta inválida del servidor IPDetective:", data);
-            return;
-        }
+class IPCheckController(http.Controller):
 
-        if (data.error) {
-            console.warn("Error consultando IPDetective:", data.error);
-            return;
-        }
+    @http.route('/check/ipdetective', type='json', auth='user', methods=['POST'])
+    def check_ipdetective(self, **kw):
+        # Obtener IP de forma más robusta
+        ip = request.httprequest.headers.get('X-Forwarded-For')
+        if ip:
+            # Tomar solo la primera IP si hay múltiples
+            ip = ip.split(',')[0].strip()
+        else:
+            ip = request.httprequest.remote_addr
+            
+        user_tz = kw.get('timezone')  # enviado desde el frontend
+        
+        _logger.info(f"Checking IP: {ip}, User timezone: {user_tz}")
 
-        // Verificar si hay indicios de VPN/Proxy
-        const hasSecurityIssues = data.vpn || data.proxy || data.datacenter || data.timezone_mismatch;
-        
-        console.log("Análisis de seguridad:", {
-            ip: data.ip,
-            vpn: data.vpn,
-            proxy: data.proxy,
-            datacenter: data.datacenter,
-            timezone_mismatch: data.timezone_mismatch,
-            geo_timezone: data.geo_timezone,
-            browser_timezone: data.browser_timezone
-        });
-        
-        if (hasSecurityIssues) {
-            // Crear notificación de advertencia
-            const notification = document.createElement('div');
-            notification.className = 'alert alert-warning alert-dismissible fade show position-fixed';
-            notification.style.cssText = `
-                top: 20px;
-                right: 20px;
-                z-index: 9999;
-                max-width: 400px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            `;
-            
-            let issues = [];
-            if (data.vpn) issues.push('VPN');
-            if (data.proxy) issues.push('Proxy');
-            if (data.datacenter) issues.push('Datacenter');
-            if (data.timezone_mismatch) issues.push('Zona horaria');
-            
-            notification.innerHTML = `
-                <div class="d-flex align-items-center">
-                    <i class="fa fa-exclamation-triangle me-2 text-warning"></i>
-                    <div>
-                        <strong>⚠️ Conexión sospechosa detectada</strong><br>
-                        <small>Detectado: ${issues.join(', ')}</small><br>
-                        <small>IP: ${data.ip || 'Desconocida'}</small>
-                    </div>
-                    <button type="button" class="btn-close ms-2" onclick="this.parentElement.parentElement.remove()"></button>
-                </div>
-            `;
-            
-            document.body.appendChild(notification);
-            
-            // Auto-remover después de 10 segundos
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.remove();
-                }
-            }, 10000);
-            
-            console.warn("🔒 Conexión sospechosa detectada:", {
-                ip: data.ip,
-                issues: issues,
-                details: {
-                    vpn: data.vpn,
-                    proxy: data.proxy,
-                    datacenter: data.datacenter,
-                    timezone_mismatch: data.timezone_mismatch,
-                    geo_tz: data.geo_timezone,
-                    browser_tz: data.browser_timezone
-                }
-            });
-        } else {
-            console.log("✅ Conexión segura verificada:", {
-                ip: data.ip,
-                country: data.country,
-                geo_timezone: data.geo_timezone,
-                browser_timezone: data.browser_timezone
-            });
-        }
-    }).catch(function (error) {
-        console.error("Error completo verificando IP:", error);
-        
-        // Verificar diferentes tipos de error
-        if (error.message) {
-            if (error.message.includes("Extra data")) {
-                console.error("Error de formato JSON del servidor. Verifica el controlador Python.");
-            } else if (error.message.includes("Unexpected token")) {
-                console.error("Respuesta del servidor no es JSON válido.");
-            } else {
-                console.error("Error general:", error.message);
+        try:
+            # Agregar headers para evitar bloqueos
+            headers = {
+                'User-Agent': 'Odoo-IPCheck/1.0',
+                'Accept': 'application/json'
             }
-        }
-    });
-});
+            
+            resp = requests.get(
+                f'https://api.ipdetective.io/check?ip={ip}', 
+                timeout=5,
+                headers=headers
+            )
+            
+            # Verificar que la respuesta sea exitosa
+            resp.raise_for_status()
+            
+            data = resp.json()
+            _logger.info(f"IPDetective response: {data}")
+
+            is_vpn = data.get('vpn', False)
+            is_proxy = data.get('proxy', False)
+            is_datacenter = data.get('datacenter', False)
+            geo_tz = data.get('timezone', None)
+
+            # Verificar timezone mismatch de forma más inteligente
+            tz_mismatch = False
+            if user_tz and geo_tz:
+                # Normalizar timezones para comparación
+                user_tz_clean = user_tz.replace('_', '/').replace('-', '/')
+                geo_tz_clean = geo_tz.replace('_', '/').replace('-', '/')
+                tz_mismatch = user_tz_clean != geo_tz_clean
+
+            result = {
+                'ip': ip,
+                'vpn': is_vpn,
+                'proxy': is_proxy,
+                'datacenter': is_datacenter,
+                'geo_timezone': geo_tz,
+                'browser_timezone': user_tz,
+                'timezone_mismatch': tz_mismatch,
+                'country': data.get('country', 'Unknown')
+            }
+            
+            _logger.info(f"Final result: {result}")
+            return result
+
+        except requests.exceptions.RequestException as e:
+            _logger.error(f"Request error: {str(e)}")
+            return {
+                'error': f'Error de conexión: {str(e)}',
+                'ip': ip,
+                'vpn': False,
+                'proxy': False,
+                'datacenter': False,
+                'timezone_mismatch': False
+            }
+            
+        except Exception as e:
+            _logger.error(f"General error: {str(e)}")
+            return {
+                'error': str(e), 
+                'ip': ip,
+                'vpn': False,
+                'proxy': False,
+                'datacenter': False,
+                'timezone_mismatch': False
+            }
