@@ -2,13 +2,23 @@
 
 import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
+import { browser } from "@web/core/browser/browser";
 
-// Función moderna para manejar el checkout
-// El objeto 'env' ya contiene todos los servicios necesarios.
-function getGeolocationFromBrowserCheckout(env, action) {
+// Función auxiliar para obtener la IP pública
+async function getPublicIpAddress() {
+    try {
+        const response = await browser.fetch('https://api.ipify.org?format=json');
+        const data = await response.json();
+        return data.ip;
+    } catch (error) {
+        console.error("No se pudo obtener la IP pública desde api.ipify.org:", error);
+        return null;
+    }
+}
+
+// Función de acción para manejar el checkout
+async function getGeolocationFromBrowserCheckout(env, action) {
     const { task_id } = action.params || {};
-
-    // Obtener los servicios dentro de la función de acción
     const notification = env.services.notification;
     const orm = env.services.orm;
     const actionService = env.services.action;
@@ -16,25 +26,16 @@ function getGeolocationFromBrowserCheckout(env, action) {
     console.log("GeolocationCheckoutAction iniciada con task_id:", task_id);
 
     if (!task_id) {
-        notification.add(_t("Error: No se encontró el ID de la tarea."), {
-            type: 'danger',
-            sticky: true
-        });
-        return Promise.resolve(); // Resuelve la promesa para evitar errores
+        notification.add(_t("Error: No se encontró el ID de la tarea."), { type: 'danger', sticky: true });
+        return;
     }
 
     if (!navigator.geolocation) {
-        notification.add(_t("Tu navegador no soporta geolocalización."), {
-            type: 'danger',
-            sticky: true
-        });
-        return Promise.resolve();
+        notification.add(_t("Tu navegador no soporta geolocalización."), { type: 'danger', sticky: true });
+        return;
     }
 
-    notification.add(_t("Obteniendo ubicación para check-out..."), {
-        type: 'info',
-        sticky: false
-    });
+    notification.add(_t("Obteniendo ubicación para check-out..."), { type: 'info' });
 
     const options = {
         enableHighAccuracy: true,
@@ -42,88 +43,77 @@ function getGeolocationFromBrowserCheckout(env, action) {
         maximumAge: 60000
     };
 
-    return new Promise((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                const location_data = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    accuracy: position.coords.accuracy
-                };
+    try {
+        const publicIp = await getPublicIpAddress();
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        
+        await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    const location_data = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        accuracy: position.coords.accuracy,
+                        ip: publicIp, // Enviar la IP al servidor
+                        timezone,
+                    };
 
-                console.log("Ubicación de check-out obtenida:", location_data);
+                    console.log("Ubicación de check-out obtenida:", location_data);
 
-                try {
-                    const result = await orm.call(
-                        'project.task',
-                        'get_checkout_location',
-                        [task_id, location_data]
-                    );
+                    try {
+                        const result = await orm.call(
+                            'project.task',
+                            'get_checkout_location',
+                            [task_id, location_data]
+                        );
 
-                    // Revisamos si el resultado de Python contiene un mensaje de error
-                    if (result && result.error_message) {
-                        notification.add(result.error_message, {
-                            type: 'danger',
-                            sticky: true
-                        });
+                        if (result && result.error_message) {
+                            notification.add(result.error_message, { type: 'danger', sticky: true });
+                        } else {
+                            const message = _t("Check-out realizado con éxito. Duración: %s, Distancia: %s km.")
+                                .replace("%s", result.duration)
+                                .replace("%s", result.distance_km);
+                            notification.add(message, { type: 'success' });
+                            
+                            actionService.doAction({ type: 'ir.actions.act_window_close' }).then(() => {
+                                window.location.reload();
+                            });
+                        }
                         resolve();
-                    } else {
-                        // Todo OK, mostramos el mensaje de éxito
-                        const message = _t("Check-out realizado con éxito. Duración: %s, Distancia: %s km.")
-                                        .replace("%s", result.duration)
-                                        .replace("%s", result.distance_km);
-
-                        notification.add(message, {
-                            type: 'success',
-                            sticky: false
-                        });
-                        
-                        // Recargar la vista actual usando el servicio de acción
-                        actionService.doAction({
-                            type: 'ir.actions.act_window_close'
-                        }).then(() => {
-                            window.location.reload();
-                            resolve();
-                        });
-                    }                   
-                } catch (error) {
-                    // Si la llamada al ORM falló con un raise de Python
-                    console.error("Error en check-out:", error);
-                    const errorMessage = error.message?.data?.message || _t("Error al procesar el check-out.");
-                    notification.add(errorMessage, {
-                        type: 'danger',
-                        sticky: true
-                    });
-                    resolve();
-                }
-            },
-            (error) => {
-                let message;
-                switch(error.code) {
-                    case error.PERMISSION_DENIED:
-                        message = _t("Acceso a la ubicación denegado. Por favor, permite el acceso a la ubicación en tu navegador.");
-                        break;
-                    case error.POSITION_UNAVAILABLE:
-                        message = _t("La ubicación no está disponible. Intenta nuevamente.");
-                        break;
-                    case error.TIMEOUT:
-                        message = _t("Tiempo de espera agotado al obtener la ubicación. Intenta nuevamente.");
-                        break;
-                    default:
-                        message = _t("Error desconocido al obtener la ubicación.");
-                        break;
-                }
-                console.error("Error de geolocalización en check-out:", error);
-                notification.add(message, {
-                    type: 'danger',
-                    sticky: true
-                });
-                resolve();
-            },
-            options
-        );
-    });
+                    } catch (error) {
+                        const errorMessage = error.message?.data?.message || _t("Error al procesar el check-out.");
+                        console.error("Error en check-out:", error);
+                        notification.add(errorMessage, { type: 'danger', sticky: true });
+                        reject(error);
+                    }
+                },
+                (error) => {
+                    let message;
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            message = _t("Acceso a la ubicación denegado. Por favor, permite el acceso a la ubicación en tu navegador.");
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            message = _t("La ubicación no está disponible. Intenta nuevamente.");
+                            break;
+                        case error.TIMEOUT:
+                            message = _t("Tiempo de espera agotado al obtener la ubicación. Intenta nuevamente.");
+                            break;
+                        default:
+                            message = _t("Error desconocido al obtener la ubicación.");
+                            break;
+                    }
+                    console.error("Error de geolocalización en check-out:", error);
+                    notification.add(message, { type: 'danger', sticky: true });
+                    reject(error);
+                },
+                options
+            );
+        });
+    } catch (error) {
+        console.error("Error al obtener la IP pública:", error);
+        notification.add(_t("Error al obtener la dirección IP para el check-out."), { type: 'danger', sticky: true });
+    }
 }
 
-// Registrar la acción
 registry.category("actions").add("get_geolocation_from_browser_checkout", getGeolocationFromBrowserCheckout);
