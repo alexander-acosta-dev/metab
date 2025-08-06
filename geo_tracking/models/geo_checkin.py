@@ -4,82 +4,35 @@ from math import radians, cos, sin, asin, sqrt
 import logging
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
-from datetime import datetime, timedelta # Asegúrate de importar timedelta
+from datetime import datetime, timedelta
 
 _logger = logging.getLogger(__name__)
 
 class GeoCheckinTask(models.Model):
     _inherit = 'project.task'
 
-    # Campos Check-in (ya existentes)
+    # Campos Check-in
     checkin_latitude = fields.Float(string="Latitud Check-in", digits=(16, 6), help="Latitud registrada durante el check-in del usuario.")
     checkin_longitude = fields.Float(string="Longitud Check-in", digits=(16, 6), help="Longitud registrada durante el check-in del usuario.")
     checkin_datetime = fields.Datetime(string="Fecha Check-in", help="Fecha y hora en que se realizó el check-in.")
     checkin_distance_km = fields.Float(string="Distancia al Cliente (km)", digits=(8, 2), help="Distancia en kilómetros entre la ubicación del check-in y la ubicación del cliente.")
-
-    # Campos Check-out (MOVIDOS DESDE geo_checkout.py)
-    checkout_latitude = fields.Float(string="Latitud Check-out", digits=(16, 6), help="Latitud registrada durante el check-out del usuario.")
-    checkout_longitude = fields.Float(string="Longitud Check-out", digits=(16, 6), help="Longitud registrada durante el check-out del usuario.")
-    checkout_datetime = fields.Datetime(string="Fecha Check-out", help="Fecha y hora en que se realizó el check-out.")
-    checkout_distance_km = fields.Float(string="Distancia Check-out (km)", digits=(8, 2), help="Distancia en kilómetros entre la ubicación del check-out y la ubicación del cliente.")
-
-    # Campos calculados para duración de la visita (MOVIDOS DESDE geo_checkout.py)
-    visit_duration = fields.Float(
-        string="Duración de Visita (horas)",
-        digits=(8, 2),
-        compute="_compute_visit_duration",
-        store=True,
-        help="Tiempo transcurrido entre check-in y check-out en horas."
-    )
-    visit_duration_formatted = fields.Char(
-        string="Duración Formateada",
-        compute="_compute_visit_duration_formatted",
-        help="Duración de la visita en formato HH:MM"
-    )
-
-    # Campos de seguridad del check-out (MOVIDOS DESDE geo_checkout.py)
-    checkout_ip = fields.Char(string="IP Check-out", help="Dirección IP desde la que se realizó el check-out")
-    checkout_security_flags = fields.Text(string="Banderas Seguridad Check-out", help="Información de seguridad detectada durante el check-out")
-    checkout_blocked = fields.Boolean(string="Check-out Bloqueado", default=False, help="Indica si el check-out fue bloqueado por razones de seguridad")
-    checkout_block_reason = fields.Text(string="Razón Bloqueo Check-out", help="Motivo por el cual se bloqueó el check-out")
-
-    # Campos relacionados del cliente (ya existentes)
+    
+    # Campos relacionados del cliente
     partner_latitude = fields.Float(related='partner_id.partner_latitude', store=True, readonly=True, string="Latitud Cliente", help="Latitud geográfica del cliente asociada a la tarea.")
     partner_longitude = fields.Float(related='partner_id.partner_longitude', store=True, readonly=True, string="Longitud Cliente", help="Longitud geográfica del cliente asociada a la tarea.")
 
-    # Estado del check-in/out (ya existente)
+    # Estado del check-in/out
     checkin_status = fields.Selection([
         ('none', 'Sin Check-in'),
         ('checked_in', 'Check-in Realizado'),
         ('checked_out', 'Check-out Realizado')
     ], string="Estado", default='none', help="Estado actual del check-in/out")
 
-    # Campos de seguridad del check-in (ya existentes)
+    # Campos de seguridad del check-in
     checkin_ip = fields.Char(string="IP Check-in", help="Dirección IP desde la que se realizó el check-in")
     checkin_security_flags = fields.Text(string="Banderas de Seguridad Check-in", help="Información de seguridad detectada durante el check-in")
     checkin_blocked = fields.Boolean(string="Check-in Bloqueado", default=False, help="Indica si el check-in fue bloqueado por razones de seguridad")
     checkin_block_reason = fields.Text(string="Razón del Bloqueo Check-in", help="Motivo por el cual se bloqueó el check-in")
-
-    @api.depends('checkin_datetime', 'checkout_datetime')
-    def _compute_visit_duration(self):
-        """Calcula la duración de la visita en horas"""
-        for record in self:
-            if record.checkin_datetime and record.checkout_datetime:
-                delta = record.checkout_datetime - record.checkin_datetime
-                record.visit_duration = delta.total_seconds() / 3600.0  # Convertir a horas
-            else:
-                record.visit_duration = 0.0
-
-    @api.depends('visit_duration')
-    def _compute_visit_duration_formatted(self):
-        """Calcula la duración formateada en HH:MM"""
-        for record in self:
-            if record.visit_duration > 0:
-                hours = int(record.visit_duration)
-                minutes = int((record.visit_duration - hours) * 60)
-                record.visit_duration_formatted = f"{hours:02d}:{minutes:02d}"
-            else:
-                record.visit_duration_formatted = "00:00"
 
     def _validate_security(self, user_ip, timezone_client):
         """Validar la seguridad de la conexión antes del check-in, recibiendo IP y timezone como parámetros."""
@@ -136,61 +89,6 @@ class GeoCheckinTask(models.Model):
         _logger.info(f"✅ Validación de seguridad check-in exitosa - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
         return True
 
-    def _validate_checkout_security(self, user_ip, timezone_client):
-        """Validar la seguridad de la conexión antes del check-out, recibiendo IP y timezone como parámetros."""
-        try:
-            ip_info = self.env['ip_check.controller']._check_ip_and_flags(user_ip, timezone_client)
-        except Exception as e:
-            _logger.error(f"Error al obtener información de seguridad de la IP en check-out: {e}")
-            ip_info = {}
-
-        vpn_detectado = ip_info.get('vpn_detectado', False)
-        proxy_detectado = ip_info.get('proxy_detectado', False)
-        datacenter_detectado = ip_info.get('datacenter_detectado', False)
-        timezone_mismatch = ip_info.get('timezone_mismatch', False)
-
-        issues = []
-        if vpn_detectado:
-            issues.append("VPN detectado")
-        if proxy_detectado:
-            issues.append("Proxy detectado")
-        if datacenter_detectado:
-            issues.append("Conexión desde datacenter")
-        if timezone_mismatch:
-            issues.append("Zona horaria no coincide")
-
-        security_info = {
-            'ip': user_ip,
-            'vpn': vpn_detectado,
-            'proxy': proxy_detectado,
-            'datacenter': datacenter_detectado,
-            'timezone_mismatch': timezone_mismatch,
-            'validation_time': fields.Datetime.now().isoformat()
-        }
-
-        self.write({
-            'checkout_ip': user_ip,
-            'checkout_security_flags': str(security_info)
-        })
-
-        if issues:
-            block_reason = f"Check-out bloqueado por conexión sospechosa: {', '.join(issues)}"
-            self.write({
-                'checkout_blocked': True,
-                'checkout_block_reason': block_reason
-            })
-            _logger.warning(f"🚫 {block_reason} - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
-            raise UserError(_(
-                "🚫 Check-out bloqueado por seguridad\n\n"
-                "Razones detectadas:\n• %s\n\n"
-                "IP: %s\n\n"
-                "🔒 Por motivos de seguridad, no se permite el check-out con estas condiciones de red.\n"
-                "💡 Si necesitas usar una conexión específica por motivos laborales, contacta con el administrador del sistema."
-            ) % ("\n• ".join(issues), user_ip))
-
-        _logger.info(f"✅ Validación de seguridad check-out exitosa - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
-        return True
-
     def get_location_button(self):
         """Inicia el proceso de check-in con geolocalización"""
         self.ensure_one()
@@ -201,9 +99,6 @@ class GeoCheckinTask(models.Model):
         if self.checkin_datetime:
             raise UserError(_("Ya se ha realizado el check-in para esta tarea."))
 
-        # La IP se obtiene en el JS y se envía a get_location
-        # Por lo tanto, esta validación de seguridad se realizará en get_location
-        
         provider = self.env['base.geocoder']._get_provider().tech_name
         _logger.info(f"Geolocalización realizada por el proveedor: {provider}")
         self.partner_id.geo_localize()
@@ -318,7 +213,7 @@ class GeoCheckinTask(models.Model):
         c = 2 * asin(sqrt(a))
         return R * c
 
-    # MÉTODOS AUXILIARES PARA ADMINISTRACIÓN (ya existentes)
+    # MÉTODOS AUXILIARES PARA ADMINISTRACIÓN
     def reset_security_block(self):
         """Resetear bloqueo de seguridad (solo administradores)"""
         self.ensure_one()
