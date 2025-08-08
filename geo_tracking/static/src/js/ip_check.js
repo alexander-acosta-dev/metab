@@ -92,7 +92,15 @@ async function verificarConexion() {
         if (!response.ok) throw new Error(`HTTP error ${response.status}`);
 
         const json = await response.json();
-        const data = json.result || {};  // 🔧 Aquí está el cambio clave
+        const data = json.result || {};
+
+        // 🔧 Desempaquetar flags si vienen anidados
+        if (data.flags) {
+            data.vpn = data.flags.vpn_detectado;
+            data.proxy = data.flags.proxy_detectado;
+            data.datacenter = data.flags.datacenter_detectado;
+            data.timezone_mismatch = data.flags.timezone_mismatch;
+        }
 
         console.log("📡 Respuesta completa del servidor:", data);
 
