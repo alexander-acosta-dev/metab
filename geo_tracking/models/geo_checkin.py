@@ -2,6 +2,8 @@
 from odoo import models, fields, api, _, http
 from math import radians, cos, sin, asin, sqrt
 import logging
+import requests
+import json
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 from datetime import datetime, timedelta
@@ -34,60 +36,32 @@ class GeoCheckinTask(models.Model):
     checkin_blocked = fields.Boolean(string="Check-in Bloqueado", default=False, help="Indica si el check-in fue bloqueado por razones de seguridad")
     checkin_block_reason = fields.Text(string="Razón del Bloqueo Check-in", help="Motivo por el cual se bloqueó el check-in")
 
-    def _validate_security(self, user_ip, timezone_client):
-        """Validar la seguridad de la conexión antes del check-in, recibiendo IP y timezone como parámetros."""
+    def _get_ip_info(self, user_ip):
+        """Obtiene la información de la IP usando ip-api.com"""
         try:
-            ip_info = self.env['ip_check.controller']._check_ip_and_flags(user_ip, timezone_client)
+            api_url = f"http://ip-api.com/json/{user_ip}?fields=status,message,country,countryCode,regionName,city,timezone,isp,org,as,proxy,hosting,mobile,query"
+            response = requests.get(api_url, timeout=8)
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get('status') == 'fail':
+                raise Exception(f"IP-API error: {data.get('message')}")
+
+            # Log all IP data for debugging
+            _logger.info(f"IP Info for {user_ip}: {json.dumps(data, indent=2)}")
+
+            return {
+                'success': True,
+                'proxy': data.get('proxy', False),
+                'ip_data': data
+            }
         except Exception as e:
-            _logger.error(f"Error al obtener información de seguridad de la IP: {e}")
-            ip_info = {}
-
-        vpn_detectado = ip_info.get('vpn_detectado', False)
-        proxy_detectado = ip_info.get('proxy_detectado', False)
-        datacenter_detectado = ip_info.get('datacenter_detectado', False)
-        timezone_mismatch = ip_info.get('timezone_mismatch', False)
-
-        issues = []
-        if vpn_detectado:
-            issues.append("VPN detectado")
-        if proxy_detectado:
-            issues.append("Proxy detectado")
-        if datacenter_detectado:
-            issues.append("Conexión desde datacenter")
-        if timezone_mismatch:
-            issues.append("Zona horaria no coincide")
-
-        security_info = {
-            'ip': user_ip,
-            'vpn': vpn_detectado,
-            'proxy': proxy_detectado,
-            'datacenter': datacenter_detectado,
-            'timezone_mismatch': timezone_mismatch,
-            'validation_time': fields.Datetime.now().isoformat()
-        }
-
-        self.write({
-            'checkin_ip': user_ip,
-            'checkin_security_flags': str(security_info)
-        })
-
-        if issues:
-            block_reason = f"Check-in bloqueado por conexión sospechosa: {', '.join(issues)}"
-            self.write({
-                'checkin_blocked': True,
-                'checkin_block_reason': block_reason
-            })
-            _logger.warning(f"🚫 {block_reason} - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
-            raise UserError(_(
-                "🚫 Check-in bloqueado por seguridad\n\n"
-                "Razones detectadas:\n• %s\n\n"
-                "IP: %s\n\n"
-                "🔒 Por motivos de seguridad, no se permite el check-in con estas condiciones de red.\n"
-                "💡 Si necesitas usar una conexión específica por motivos laborales, contacta con el administrador del sistema."
-            ) % ("\n• ".join(issues), user_ip))
-
-        _logger.info(f"✅ Validación de seguridad check-in exitosa - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
-        return True
+            _logger.error(f"❌ IP-API.com falló: {str(e)}")
+            return {
+                'success': False,
+                'proxy': False, # Assume no proxy on failure to avoid blocking valid users
+                'error': str(e)
+            }
 
     def get_location_button(self):
         """Inicia el proceso de check-in con geolocalización"""
@@ -132,17 +106,39 @@ class GeoCheckinTask(models.Model):
 
         # 🔒 CAPTURA DE IP Y VALIDACIÓN DE SEGURIDAD
         user_ip = location_data.get('ip')
-        timezone_client = location_data.get('timezone')
+        ip_info = {}
 
-        if not user_ip:
-            _logger.warning("No se pudo obtener la IP del cliente. El check-in se realizará sin validación de seguridad.")
+        if user_ip:
+            ip_info = task._get_ip_info(user_ip)
+            task.write({
+                'checkin_ip': user_ip,
+                'checkin_security_flags': json.dumps(ip_info.get('ip_data'), indent=2)
+            })
+
+            if ip_info.get('proxy'):
+                block_reason = "Check-in bloqueado por conexión sospechosa: Proxy detectado"
+                task.write({
+                    'checkin_blocked': True,
+                    'checkin_block_reason': block_reason
+                })
+                _logger.warning(f"🚫 {block_reason} - Usuario: {self.env.user.name}, Tarea: {task.name}, IP: {user_ip}")
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': _('Proxy Detectado'),
+                        'message': _("No se puede realizar el check-in porque se ha detectado el uso de un proxy. Por favor, desactive cualquier proxy o VPN e intente de nuevo."),
+                        'type': 'danger',
+                        'sticky': True,
+                        'ip_data': ip_info.get('ip_data')
+                    }
+                }
+        else:
+            _logger.warning("No se pudo obtener la IP del cliente. El check-in continuará sin validación de seguridad.")
             task.write({
                 'checkin_ip': 'unknown',
                 'checkin_security_flags': "IP del cliente no disponible.",
-                'checkin_blocked': False,
             })
-        else:
-            task._validate_security(user_ip, timezone_client)
         
         latitude = location_data.get('latitude')
         longitude = location_data.get('longitude')
@@ -199,7 +195,8 @@ class GeoCheckinTask(models.Model):
 
         return {
             'distance_km': f"{distance_km:.3f}",
-            'message': _("Check-in realizado con éxito a %.3f km del cliente.") % distance_km
+            'message': _("Check-in realizado con éxito a %.3f km del cliente.") % distance_km,
+            'ip_data': ip_info.get('ip_data')
         }
 
     def _haversine(self, lat1, lon1, lat2, lon2):

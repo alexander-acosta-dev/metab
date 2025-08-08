@@ -6,7 +6,22 @@ import { _t } from "@web/core/l10n/translation";
 import { FormController } from "@web/views/form/form_controller";
 import { browser } from "@web/core/browser/browser";
 
-// Función de acción cliente corregida para check-in
+// Función para obtener la IP pública del usuario
+async function getPublicIpAddress() {
+    try {
+        const response = await browser.fetch('https://api.ipify.org?format=json');
+        if (!response.ok) {
+            throw new Error('Failed to fetch IP from ipify.org');
+        }
+        const data = await response.json();
+        return data.ip;
+    } catch (error) {
+        console.error("Error getting public IP:", error);
+        return null; // Retornar null si falla
+    }
+}
+
+// Función de acción cliente para el check-in
 async function getGeolocationClientAction(env, action) {
     const { task_id } = action.params || {};
     const orm = env.services.orm;
@@ -17,109 +32,60 @@ async function getGeolocationClientAction(env, action) {
         return;
     }
 
-    notification.add(_t("Obteniendo su ubicación actual..."), { type: 'info' });
+    notification.add(_t("Obteniendo su ubicación actual..."), { type: 'info', sticky: false });
 
-    try {
-        const publicIp = await getPublicIpAddress();
-        console.log("IP pública obtenida:", publicIp);
+    const publicIp = await getPublicIpAddress();
+    if (!publicIp) {
+        notification.add(_t("No se pudo obtener tu dirección IP. Verifica tu conexión a internet."), { type: 'danger', sticky: true });
+        return;
+    }
 
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude, longitude, accuracy } = position.coords;
+                console.log("Ubicación obtenida:", { latitude, longitude, accuracy });
 
-        // 🔒 Validar IP y zona horaria antes de hacer el check-in
-        try {
-            const ipCheckResult = await browser.fetch('/check/ipdetective', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ timezone }),
-            });
-            const ipData = await ipCheckResult.json();
-            console.log("📡 Respuesta de seguridad IP:", ipData);
+                try {
+                    const result = await orm.call(
+                        'project.task',
+                        'get_location',
+                        [task_id, {
+                            latitude,
+                            longitude,
+                            accuracy,
+                            ip: publicIp,
+                            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        }]
+                    );
+                    
+                    // Imprimir todos los datos de la IP en la consola
+                    if (result.ip_data) {
+                        console.log("Datos completos de la IP:", result.ip_data);
+                    }
 
-            if (ipData.success) {
-                const flags = ipData.flags || {};
-                if (flags.vpn_detectado || flags.proxy_detectado || flags.datacenter_detectado || flags.timezone_mismatch) {
-                    notification.add(_t("🔒 Conexión insegura detectada. No se permite el check-in desde VPN, proxy, datacenter o zonas horarias distintas."), {
-                        type: 'danger',
-                        sticky: true,
-                    });
-                    return; // 🚫 Bloqueamos el flujo
+                    handleServerResponse(result, notification, env.services.action);
+
+                } catch (error) {
+                    handleRpcError(error, notification);
                 }
-            } else {
-                notification.add(_t("❗ Error al verificar la seguridad de la IP."), {
-                    type: 'danger',
-                    sticky: true,
-                });
-                return;
-            }
-        } catch (ipCheckError) {
-            console.error("❌ Error al verificar la IP:", ipCheckError);
-            notification.add(_t("❗ Fallo en la verificación de IP."), {
-                type: 'danger',
-                sticky: true,
-            });
-            return;
-        }
-
-        // 📍 Si pasó la verificación de IP, continuar con geolocalización
-        if (navigator.geolocation) {
-            await new Promise((resolve, reject) => {
-                navigator.geolocation.getCurrentPosition(
-                    async (position) => {
-                        const { latitude, longitude, accuracy } = position.coords;
-                        console.log("Ubicación obtenida:", latitude, longitude, "Precisión:", accuracy);
-
-                        try {
-                            const result = await orm.call(
-                                'project.task',
-                                'get_location',
-                                [task_id, {
-                                    latitude,
-                                    longitude,
-                                    accuracy,
-                                    ip: publicIp,
-                                    timezone,
-                                }]
-                            );
-                            handleServerResponse(result, notification, env.services.action);
-                            resolve();
-                        } catch (error) {
-                            handleRpcError(error, notification);
-                            reject(error);
-                        }
-                    },
-                    (error) => {
-                        handleGeolocationError(error, notification);
-                        reject(error);
-                    },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-                );
-            });
-        } else {
-            notification.add(_t("Tu navegador no soporta la geolocalización."), { type: 'danger', sticky: true });
-        }
-    } catch (error) {
-        console.error("Error al obtener la IP pública:", error);
-        notification.add(_t("Error al obtener la dirección IP."), { type: 'danger', sticky: true });
+            },
+            (error) => {
+                handleGeolocationError(error, notification);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    } else {
+        notification.add(_t("Tu navegador no soporta la geolocalización."), { type: 'danger', sticky: true });
     }
 }
 
-// Función auxiliar para obtener la IP pública
-async function getPublicIpAddress() {
-    try {
-        const response = await browser.fetch('https://api.ipify.org?format=json');
-        const data = await response.json();
-        return data.ip;
-    } catch (error) {
-        console.error("No se pudo obtener la IP pública desde api.ipify.org:", error);
-        return null;
-    }
-}
-
-// Función auxiliar para manejar la respuesta del servidor
+// Función para manejar la respuesta del servidor
 function handleServerResponse(result, notification, actionService) {
     if (result.type === 'ir.actions.client' && result.tag === 'display_notification') {
         const params = result.params || {};
         notification.add(params.message || _t("Error al registrar la ubicación"), {
+            title: params.title || _t("Error"),
             type: params.type || 'danger',
             sticky: params.sticky !== undefined ? params.sticky : true,
         });
@@ -127,39 +93,37 @@ function handleServerResponse(result, notification, actionService) {
         notification.add(result.message || _t("Ubicación registrada con éxito"), {
             type: 'success',
         });
-    }
-
-    if (!(result.type === 'ir.actions.client' && result.tag === 'display_notification' && (result.params?.type === 'danger' || result.params?.type === 'warning'))) {
-        actionService.doAction({ type: 'ir.actions.act_window_close' }).then(() => {
-            window.location.reload();
-        });
+        actionService.doAction({ type: 'ir.actions.act_window_close' });
     }
 }
 
-// Función auxiliar para manejar errores de RPC (server)
+// Función para manejar errores de RPC
 function handleRpcError(error, notification) {
-    const errorMessage = error.message?.data?.message || _t("Error al registrar la ubicación.");
-    console.error("Error al registrar la ubicación en Odoo:", error);
+    const errorMessage = error.message?.data?.message || _t("Error al procesar la solicitud.");
+    console.error("Error RPC:", error);
     notification.add(errorMessage, { type: 'danger', sticky: true });
 }
 
-// Función auxiliar para manejar errores de geolocalización (navegador)
+// Función para manejar errores de geolocalización
 function handleGeolocationError(error, notification) {
-    let errorMessage = _t("Error desconocido al obtener la ubicación.");
+    let errorMessage;
     switch (error.code) {
         case error.PERMISSION_DENIED:
-            errorMessage = _t("Permiso denegado para acceder a la ubicación. Asegúrate de que tu navegador permita la geolocalización para este sitio.");
+            errorMessage = _t("Permiso de geolocalización denegado.");
             break;
         case error.POSITION_UNAVAILABLE:
-            errorMessage = _t("La información de ubicación no está disponible.");
+            errorMessage = _t("Información de ubicación no disponible.");
             break;
         case error.TIMEOUT:
-            errorMessage = _t("La solicitud para obtener la ubicación ha caducado.");
+            errorMessage = _t("Tiempo de espera agotado para obtener la ubicación.");
+            break;
+        default:
+            errorMessage = _t("Error desconocido de geolocalización.");
             break;
     }
-    console.error("Error al obtener la ubicación del navegador:", error);
+    console.error("Error de geolocalización:", error);
     notification.add(errorMessage, { type: 'danger', sticky: true });
 }
 
-// Registrar la acción personalizada
-registry.category('actions').add('get_geolocation_from_browser', getGeolocationClientAction, { force: true });
+// Registrar la acción en el registro de Odoo
+registry.category('actions').add('get_geolocation_from_browser', getGeolocationClientAction);
