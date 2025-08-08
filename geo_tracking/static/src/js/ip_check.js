@@ -1,193 +1,8 @@
 /** @odoo-module **/
 
-import { rpc } from "@web/core/network/rpc";
 import { whenReady } from "@odoo/owl";
 
-// Ejecutar cuando el DOM esté listo
-whenReady(() => {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    
-    console.log("🚀 Iniciando verificación de seguridad IP con timezone:", timezone);
-    
-    // Usar el servicio RPC de Odoo 18
-    rpc("/check/ipdetective", {
-        timezone: timezone
-    }).then(function (data) {
-        console.log("📡 Respuesta completa del servidor:", data);
-        
-        // Verificar si la respuesta es válida
-        if (!data || typeof data !== 'object') {
-            console.warn("⚠️ Respuesta inválida del servidor:", data);
-            return;
-        }
-
-        // Manejar errores de la API
-        if (data.error) {
-            console.warn("❌ Error en verificación IP:", data.error);
-            
-            // Mostrar notificación de error de sistema (opcional)
-            if (data.status === 'critical_error') {
-                showNotification('error', '🚨 Error crítico de verificación', data.error);
-            }
-            return;
-        }
-
-        // Manejar IP local
-        if (data.status === 'local_ip') {
-            console.log("🏠 IP local detectada:", data.message);
-            return;
-        }
-
-        // Verificar si hay indicios de VPN/Proxy/Datacenter
-        const hasSecurityIssues = data.vpn || data.proxy || data.datacenter || data.timezone_mismatch;
-        
-        console.log("🔍 Análisis de seguridad completo:", {
-            provider: data.provider,
-            ip: data.ip,
-            country: data.country,
-            region: data.region,
-            city: data.city,
-            isp: data.isp,
-            vpn: data.vpn,
-            proxy: data.proxy,
-            datacenter: data.datacenter,
-            mobile: data.mobile,
-            timezone_mismatch: data.timezone_mismatch,
-            geo_timezone: data.geo_timezone,
-            browser_timezone: data.browser_timezone
-        });
-        
-        if (hasSecurityIssues) {
-            // Determinar nivel de riesgo
-            let riskLevel = 'warning';
-            let riskCount = 0;
-            if (data.vpn) riskCount++;
-            if (data.proxy) riskCount++;
-            if (data.datacenter) riskCount++;
-            if (data.timezone_mismatch) riskCount++;
-            
-            if (riskCount >= 2) riskLevel = 'danger';
-            
-            // Crear lista de issues detectados
-            let issues = [];
-            if (data.vpn) issues.push('🔒 VPN');
-            if (data.proxy) issues.push('🛡️ Proxy');
-            if (data.datacenter) issues.push('🏢 Datacenter');
-            if (data.timezone_mismatch) issues.push('🌍 Zona horaria');
-            
-            // Crear notificación de advertencia
-            const notification = document.createElement('div');
-            notification.className = `alert alert-${riskLevel} alert-dismissible fade show position-fixed`;
-            notification.style.cssText = `
-                top: 20px;
-                right: 20px;
-                z-index: 9999;
-                max-width: 450px;
-                box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-                border-left: 5px solid ${riskLevel === 'danger' ? '#dc3545' : '#ffc107'};
-                animation: slideIn 0.5s ease-out;
-            `;
-            
-            const icon = riskLevel === 'danger' ? '🚨' : '⚠️';
-            const title = riskLevel === 'danger' ? 'Conexión de alto riesgo' : 'Conexión sospechosa detectada';
-            
-            notification.innerHTML = `
-                <div class="d-flex align-items-start">
-                    <div class="me-3 mt-1">
-                        <i class="fa fa-shield-alt text-${riskLevel}" style="font-size: 1.2em;"></i>
-                    </div>
-                    <div class="flex-grow-1">
-                        <strong>${icon} ${title}</strong><br>
-                        <small class="text-muted">Detectado: ${issues.join(', ')}</small><br>
-                        <small class="text-muted">📍 ${data.country || 'País desconocido'} • ${data.city || 'Ciudad desconocida'}</small><br>
-                        <small class="text-muted">🌐 ${data.ip} • ${data.isp || 'ISP desconocido'}</small><br>
-                        <small class="text-muted mt-1 d-block">🔗 Fuente: ${data.provider || 'API múltiple'}</small>
-                    </div>
-                    <button type="button" class="btn-close ms-2" onclick="this.parentElement.parentElement.remove()"></button>
-                </div>
-            `;
-            
-            document.body.appendChild(notification);
-            
-            // Auto-remover después de 15 segundos (más tiempo para leer)
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.style.animation = 'slideOut 0.5s ease-in';
-                    setTimeout(() => notification.remove(), 500);
-                }
-            }, 15000);
-            
-            console.warn("🔒 CONEXIÓN SOSPECHOSA DETECTADA:", {
-                riskLevel: riskLevel,
-                ip: data.ip,
-                location: `${data.city}, ${data.region}, ${data.country}`,
-                issues: issues,
-                details: {
-                    vpn: data.vpn,
-                    proxy: data.proxy,
-                    datacenter: data.datacenter,
-                    timezone_mismatch: data.timezone_mismatch,
-                    geo_tz: data.geo_timezone,
-                    browser_tz: data.browser_timezone,
-                    isp: data.isp,
-                    provider: data.provider
-                }
-            });
-            
-            // Opcional: Enviar evento personalizado para otros sistemas
-            window.dispatchEvent(new CustomEvent('suspiciousConnection', {
-                detail: {
-                    riskLevel: riskLevel,
-                    data: data,
-                    issues: issues
-                }
-            }));
-            
-        } else {
-            console.log("✅ CONEXIÓN SEGURA VERIFICADA:", {
-                ip: data.ip,
-                location: `${data.city}, ${data.region}, ${data.country}`,
-                isp: data.isp,
-                mobile: data.mobile,
-                geo_timezone: data.geo_timezone,
-                browser_timezone: data.browser_timezone,
-                provider: data.provider
-            });
-            
-            // Opcional: Mostrar confirmación discreta de seguridad
-            if (window.location.hash.includes('debug') || localStorage.getItem('show_security_ok')) {
-                showNotification('success', '✅ Conexión verificada', 
-                    `IP segura desde ${data.country} (${data.provider})`);
-            }
-        }
-        
-    }).catch(function (error) {
-        console.error("💥 Error completo verificando IP:", error);
-        
-        // Análisis detallado del error
-        if (error.message) {
-            if (error.message.includes("Extra data")) {
-                console.error("🔧 Error de formato JSON del servidor. Verifica el controlador Python.");
-            } else if (error.message.includes("Unexpected token")) {
-                console.error("🔧 Respuesta del servidor no es JSON válido.");
-            } else if (error.message.includes("404")) {
-                console.error("🔧 Endpoint /check/ipdetective no encontrado. Verifica la ruta.");
-            } else if (error.message.includes("500")) {
-                console.error("🔧 Error interno del servidor. Revisa logs de Odoo.");
-            } else {
-                console.error("🔧 Error general:", error.message);
-            }
-        }
-        
-        // Solo mostrar error si es crítico
-        if (error.message && !error.message.includes("404")) {
-            showNotification('error', '🚨 Error de verificación', 
-                'No se pudo verificar la seguridad de la conexión');
-        }
-    });
-});
-
-// Función auxiliar para mostrar notificaciones
+// Función para mostrar notificaciones en pantalla
 function showNotification(type, title, message) {
     const typeClasses = {
         'success': 'alert-success',
@@ -227,7 +42,6 @@ function showNotification(type, title, message) {
     
     document.body.appendChild(notification);
     
-    // Auto-remover
     setTimeout(() => {
         if (notification.parentNode) {
             notification.style.animation = 'slideOut 0.5s ease-in';
@@ -236,7 +50,7 @@ function showNotification(type, title, message) {
     }, 8000);
 }
 
-// CSS animations (inyectar una sola vez)
+// Inyectar CSS para animaciones (una vez)
 if (!document.getElementById('security-notifications-css')) {
     const style = document.createElement('style');
     style.id = 'security-notifications-css';
@@ -252,3 +66,198 @@ if (!document.getElementById('security-notifications-css')) {
     `;
     document.head.appendChild(style);
 }
+
+// Función principal para verificar IP y zona horaria
+async function verificarConexion() {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    console.log("🚀 Iniciando verificación de seguridad IP con timezone:", timezone);
+
+    let clientIp = null;
+    try {
+        // Obtener IP pública desde api.ipify.org (opcional pero recomendado)
+        const ipResponse = await fetch('https://api.ipify.org?format=json');
+        const ipData = await ipResponse.json();
+        clientIp = ipData.ip;
+        console.log("IP pública obtenida:", clientIp);
+    } catch (ipError) {
+        console.warn("No se pudo obtener la IP pública:", ipError);
+        // No bloqueamos la verificación si falla obtener la IP pública
+    }
+
+    try {
+        // Hacer llamada POST a endpoint personalizado con timezone y IP pública
+        const response = await fetch('/check/ipdetective', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ timezone, client_ip: clientIp }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        console.log("📡 Respuesta completa del servidor:", data);
+
+        if (!data || typeof data !== 'object') {
+            console.warn("⚠️ Respuesta inválida del servidor:", data);
+            return;
+        }
+
+        if (data.error) {
+            console.warn("❌ Error en verificación IP:", data.error);
+            if (data.status === 'critical_error') {
+                showNotification('error', '🚨 Error crítico de verificación', data.error);
+            }
+            return;
+        }
+
+        if (data.status === 'local_ip') {
+            console.log("🏠 IP local detectada:", data.message);
+            return;
+        }
+
+        const hasSecurityIssues = data.vpn || data.proxy || data.datacenter || data.timezone_mismatch;
+
+        console.log("🔍 Análisis de seguridad completo:", {
+            provider: data.provider,
+            ip: data.ip,
+            country: data.country,
+            region: data.region,
+            city: data.city,
+            isp: data.isp,
+            vpn: data.vpn,
+            proxy: data.proxy,
+            datacenter: data.datacenter,
+            mobile: data.mobile,
+            timezone_mismatch: data.timezone_mismatch,
+            geo_timezone: data.geo_timezone,
+            browser_timezone: data.browser_timezone
+        });
+
+        if (hasSecurityIssues) {
+            let riskLevel = 'warning';
+            let riskCount = 0;
+            if (data.vpn) riskCount++;
+            if (data.proxy) riskCount++;
+            if (data.datacenter) riskCount++;
+            if (data.timezone_mismatch) riskCount++;
+
+            if (riskCount >= 2) riskLevel = 'danger';
+
+            let issues = [];
+            if (data.vpn) issues.push('🔒 VPN');
+            if (data.proxy) issues.push('🛡️ Proxy');
+            if (data.datacenter) issues.push('🏢 Datacenter');
+            if (data.timezone_mismatch) issues.push('🌍 Zona horaria');
+
+            const notification = document.createElement('div');
+            notification.className = `alert alert-${riskLevel} alert-dismissible fade show position-fixed`;
+            notification.style.cssText = `
+                top: 20px;
+                right: 20px;
+                z-index: 9999;
+                max-width: 450px;
+                box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+                border-left: 5px solid ${riskLevel === 'danger' ? '#dc3545' : '#ffc107'};
+                animation: slideIn 0.5s ease-out;
+            `;
+
+            const icon = riskLevel === 'danger' ? '🚨' : '⚠️';
+            const title = riskLevel === 'danger' ? 'Conexión de alto riesgo' : 'Conexión sospechosa detectada';
+
+            notification.innerHTML = `
+                <div class="d-flex align-items-start">
+                    <div class="me-3 mt-1">
+                        <i class="fa fa-shield-alt text-${riskLevel}" style="font-size: 1.2em;"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <strong>${icon} ${title}</strong><br>
+                        <small class="text-muted">Detectado: ${issues.join(', ')}</small><br>
+                        <small class="text-muted">📍 ${data.country || 'País desconocido'} • ${data.city || 'Ciudad desconocida'}</small><br>
+                        <small class="text-muted">🌐 ${data.ip} • ${data.isp || 'ISP desconocido'}</small><br>
+                        <small class="text-muted mt-1 d-block">🔗 Fuente: ${data.provider || 'API múltiple'}</small>
+                    </div>
+                    <button type="button" class="btn-close ms-2" onclick="this.parentElement.parentElement.remove()"></button>
+                </div>
+            `;
+
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.style.animation = 'slideOut 0.5s ease-in';
+                    setTimeout(() => notification.remove(), 500);
+                }
+            }, 15000);
+
+            console.warn("🔒 CONEXIÓN SOSPECHOSA DETECTADA:", {
+                riskLevel: riskLevel,
+                ip: data.ip,
+                location: `${data.city}, ${data.region}, ${data.country}`,
+                issues: issues,
+                details: {
+                    vpn: data.vpn,
+                    proxy: data.proxy,
+                    datacenter: data.datacenter,
+                    timezone_mismatch: data.timezone_mismatch,
+                    geo_tz: data.geo_timezone,
+                    browser_tz: data.browser_timezone,
+                    isp: data.isp,
+                    provider: data.provider
+                }
+            });
+
+            window.dispatchEvent(new CustomEvent('suspiciousConnection', {
+                detail: {
+                    riskLevel: riskLevel,
+                    data: data,
+                    issues: issues
+                }
+            }));
+
+        } else {
+            console.log("✅ CONEXIÓN SEGURA VERIFICADA:", {
+                ip: data.ip,
+                location: `${data.city}, ${data.region}, ${data.country}`,
+                isp: data.isp,
+                mobile: data.mobile,
+                geo_timezone: data.geo_timezone,
+                browser_timezone: data.browser_timezone,
+                provider: data.provider
+            });
+
+            if (window.location.hash.includes('debug') || localStorage.getItem('show_security_ok')) {
+                showNotification('success', '✅ Conexión verificada', 
+                    `IP segura desde ${data.country} (${data.provider})`);
+            }
+        }
+
+    } catch (error) {
+        console.error("💥 Error completo verificando IP:", error);
+
+        if (error.message) {
+            if (error.message.includes("Extra data")) {
+                console.error("🔧 Error de formato JSON del servidor. Verifica el controlador Python.");
+            } else if (error.message.includes("Unexpected token")) {
+                console.error("🔧 Respuesta del servidor no es JSON válido.");
+            } else if (error.message.includes("404")) {
+                console.error("🔧 Endpoint /check/ipdetective no encontrado. Verifica la ruta.");
+            } else if (error.message.includes("500")) {
+                console.error("🔧 Error interno del servidor. Revisa logs de Odoo.");
+            } else {
+                console.error("🔧 Error general:", error.message);
+            }
+        }
+
+        if (error.message && !error.message.includes("404")) {
+            showNotification('error', '🚨 Error de verificación', 
+                'No se pudo verificar la seguridad de la conexión');
+        }
+    }
+}
+
+// Ejecutar al cargar DOM
+whenReady(verificarConexion);
