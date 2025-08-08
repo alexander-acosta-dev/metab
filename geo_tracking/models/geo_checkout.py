@@ -210,7 +210,7 @@ class GeoCheckoutTask(models.Model):
 
             _logger.info("Distancia calculada en check-out: %.3f km", distance_km)
 
-            if distance_km > 0.10:
+            if distance_km > 0.30:
                 _logger.warning("Check-out fuera de rango para la tarea %s. Distancia: %.3f km.", task.name, distance_km)
                 return {
                     'error_message': _("Estás fuera del rango permitido, a %.3f km del cliente.") % distance_km,
