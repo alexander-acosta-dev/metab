@@ -169,11 +169,18 @@ class IPCheckController(http.Controller):
 
         ip_info = self._get_ip_info(user_ip)
 
+        ip_timezone = (ip_info.get('timezone') or '').strip().lower()
+        client_timezone = (timezone or '').strip().lower()
+
+        timezone_mismatch = ip_timezone != client_timezone and client_timezone != ""
+
+        _logger.info(f"🌐 Comparación de zonas horarias - IP: {ip_timezone} | Cliente: {client_timezone} | Mismatch: {timezone_mismatch}")
+
         flags = {
             'vpn_detectado': ip_info.get('vpn', False),
             'proxy_detectado': ip_info.get('proxy', False),
             'datacenter_detectado': ip_info.get('datacenter', False),
-            'timezone_mismatch': False  # Puedes implementar esta lógica si deseas
+            'timezone_mismatch': timezone_mismatch
         }
 
         # Guardar en sesión
