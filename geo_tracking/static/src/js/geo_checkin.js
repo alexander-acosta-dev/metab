@@ -23,9 +23,44 @@ async function getGeolocationClientAction(env, action) {
         const publicIp = await getPublicIpAddress();
         console.log("IP pública obtenida:", publicIp);
 
-        // Si la IP no se pudo obtener, se continua, pero se registrará en el servidor
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+        // 🔒 Validar IP y zona horaria antes de hacer el check-in
+        try {
+            const ipCheckResult = await browser.fetch('/check/ipdetective', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ timezone }),
+            });
+            const ipData = await ipCheckResult.json();
+            console.log("📡 Respuesta de seguridad IP:", ipData);
+
+            if (ipData.success) {
+                const flags = ipData.flags || {};
+                if (flags.vpn_detectado || flags.proxy_detectado || flags.datacenter_detectado || flags.timezone_mismatch) {
+                    notification.add(_t("🔒 Conexión insegura detectada. No se permite el check-in desde VPN, proxy, datacenter o zonas horarias distintas."), {
+                        type: 'danger',
+                        sticky: true,
+                    });
+                    return; // 🚫 Bloqueamos el flujo
+                }
+            } else {
+                notification.add(_t("❗ Error al verificar la seguridad de la IP."), {
+                    type: 'danger',
+                    sticky: true,
+                });
+                return;
+            }
+        } catch (ipCheckError) {
+            console.error("❌ Error al verificar la IP:", ipCheckError);
+            notification.add(_t("❗ Fallo en la verificación de IP."), {
+                type: 'danger',
+                sticky: true,
+            });
+            return;
+        }
+
+        // 📍 Si pasó la verificación de IP, continuar con geolocalización
         if (navigator.geolocation) {
             await new Promise((resolve, reject) => {
                 navigator.geolocation.getCurrentPosition(
@@ -41,11 +76,10 @@ async function getGeolocationClientAction(env, action) {
                                     latitude,
                                     longitude,
                                     accuracy,
-                                    ip: publicIp, // Enviar la IP al servidor
+                                    ip: publicIp,
                                     timezone,
                                 }]
                             );
-                            
                             handleServerResponse(result, notification, env.services.action);
                             resolve();
                         } catch (error) {
@@ -112,7 +146,7 @@ function handleRpcError(error, notification) {
 // Función auxiliar para manejar errores de geolocalización (navegador)
 function handleGeolocationError(error, notification) {
     let errorMessage = _t("Error desconocido al obtener la ubicación.");
-    switch(error.code) {
+    switch (error.code) {
         case error.PERMISSION_DENIED:
             errorMessage = _t("Permiso denegado para acceder a la ubicación. Asegúrate de que tu navegador permita la geolocalización para este sitio.");
             break;
@@ -127,4 +161,5 @@ function handleGeolocationError(error, notification) {
     notification.add(errorMessage, { type: 'danger', sticky: true });
 }
 
+// Registrar la acción personalizada
 registry.category('actions').add('get_geolocation_from_browser', getGeolocationClientAction, { force: true });
