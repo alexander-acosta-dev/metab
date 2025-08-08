@@ -105,7 +105,7 @@ class GeoCheckinTask(models.Model):
         
         if not (self.partner_id.partner_latitude and self.partner_id.partner_longitude):
             raise UserError(_("El cliente no tiene coordenadas geográficas. Primero actualiza las coordenadas del cliente usando el botón 'Actualizar Coordenadas Cliente'."))
-        
+
         _logger.info("Botón 'Registrar Check-in' presionado para la tarea %s.", self.name)
         
         return {
