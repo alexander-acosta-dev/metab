@@ -2,22 +2,22 @@
 
 import { whenReady } from "@odoo/owl";
 
-// Función para mostrar notificaciones en pantalla
+// Función para mostrar notificaciones
 function showNotification(type, title, message) {
     const typeClasses = {
         'success': 'alert-success',
-        'warning': 'alert-warning', 
+        'warning': 'alert-warning',
         'error': 'alert-danger',
         'info': 'alert-info'
     };
-    
+
     const icons = {
         'success': 'fa-check-circle',
         'warning': 'fa-exclamation-triangle',
         'error': 'fa-times-circle',
         'info': 'fa-info-circle'
     };
-    
+
     const notification = document.createElement('div');
     notification.className = `alert ${typeClasses[type]} alert-dismissible fade show position-fixed`;
     notification.style.cssText = `
@@ -28,7 +28,7 @@ function showNotification(type, title, message) {
         box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         animation: slideIn 0.5s ease-out;
     `;
-    
+
     notification.innerHTML = `
         <div class="d-flex align-items-center">
             <i class="fa ${icons[type]} me-2"></i>
@@ -39,9 +39,9 @@ function showNotification(type, title, message) {
             <button type="button" class="btn-close ms-2" onclick="this.parentElement.parentElement.remove()"></button>
         </div>
     `;
-    
+
     document.body.appendChild(notification);
-    
+
     setTimeout(() => {
         if (notification.parentNode) {
             notification.style.animation = 'slideOut 0.5s ease-in';
@@ -50,7 +50,7 @@ function showNotification(type, title, message) {
     }, 8000);
 }
 
-// Inyectar CSS para animaciones (una vez)
+// Inyectar CSS de animaciones
 if (!document.getElementById('security-notifications-css')) {
     const style = document.createElement('style');
     style.id = 'security-notifications-css';
@@ -67,37 +67,32 @@ if (!document.getElementById('security-notifications-css')) {
     document.head.appendChild(style);
 }
 
-// Función principal para verificar IP y zona horaria
+// Función principal
 async function verificarConexion() {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
     console.log("🚀 Iniciando verificación de seguridad IP con timezone:", timezone);
 
     let clientIp = null;
     try {
-        // Obtener IP pública desde api.ipify.org (opcional pero recomendado)
         const ipResponse = await fetch('https://api.ipify.org?format=json');
         const ipData = await ipResponse.json();
         clientIp = ipData.ip;
         console.log("IP pública obtenida:", clientIp);
     } catch (ipError) {
         console.warn("No se pudo obtener la IP pública:", ipError);
-        // No bloqueamos la verificación si falla obtener la IP pública
     }
 
     try {
-        // Hacer llamada POST a endpoint personalizado con timezone y IP pública
         const response = await fetch('/check/ipdetective', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ timezone, client_ip: clientIp }),
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
 
-        const data = await response.json();
+        const json = await response.json();
+        const data = json.result || {};  // 🔧 Aquí está el cambio clave
 
         console.log("📡 Respuesta completa del servidor:", data);
 
@@ -144,7 +139,6 @@ async function verificarConexion() {
             if (data.proxy) riskCount++;
             if (data.datacenter) riskCount++;
             if (data.timezone_mismatch) riskCount++;
-
             if (riskCount >= 2) riskLevel = 'danger';
 
             let issues = [];
@@ -211,11 +205,7 @@ async function verificarConexion() {
             });
 
             window.dispatchEvent(new CustomEvent('suspiciousConnection', {
-                detail: {
-                    riskLevel: riskLevel,
-                    data: data,
-                    issues: issues
-                }
+                detail: { riskLevel, data, issues }
             }));
 
         } else {
@@ -230,7 +220,7 @@ async function verificarConexion() {
             });
 
             if (window.location.hash.includes('debug') || localStorage.getItem('show_security_ok')) {
-                showNotification('success', '✅ Conexión verificada', 
+                showNotification('success', '✅ Conexión verificada',
                     `IP segura desde ${data.country} (${data.provider})`);
             }
         }
@@ -240,24 +230,23 @@ async function verificarConexion() {
 
         if (error.message) {
             if (error.message.includes("Extra data")) {
-                console.error("🔧 Error de formato JSON del servidor. Verifica el controlador Python.");
+                console.error("🔧 Error de formato JSON del servidor.");
             } else if (error.message.includes("Unexpected token")) {
                 console.error("🔧 Respuesta del servidor no es JSON válido.");
             } else if (error.message.includes("404")) {
-                console.error("🔧 Endpoint /check/ipdetective no encontrado. Verifica la ruta.");
+                console.error("🔧 Endpoint /check/ipdetective no encontrado.");
             } else if (error.message.includes("500")) {
-                console.error("🔧 Error interno del servidor. Revisa logs de Odoo.");
+                console.error("🔧 Error interno del servidor.");
             } else {
                 console.error("🔧 Error general:", error.message);
             }
         }
 
-        if (error.message && !error.message.includes("404")) {
-            showNotification('error', '🚨 Error de verificación', 
+        if (!error.message?.includes("404")) {
+            showNotification('error', '🚨 Error de verificación',
                 'No se pudo verificar la seguridad de la conexión');
         }
     }
 }
 
-// Ejecutar al cargar DOM
 whenReady(verificarConexion);
