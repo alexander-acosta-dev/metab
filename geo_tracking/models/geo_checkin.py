@@ -166,7 +166,7 @@ class GeoCheckinTask(models.Model):
             client_lat = partner.partner_latitude
             client_lon = partner.partner_longitude
             distance_km = task._haversine(client_lat, client_lon, latitude, longitude)
-            if distance_km > 0.10:
+            if distance_km > 0.30:
                 _logger.warning(f"Check-in fuera de rango para la tarea {task.name}. Distancia: {distance_km:.3f} km.")
                 return {
                     'type': 'ir.actions.client',
