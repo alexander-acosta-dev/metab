@@ -93,7 +93,9 @@ function handleServerResponse(result, notification, actionService) {
         notification.add(result.message || _t("Ubicación registrada con éxito"), {
             type: 'success',
         });
-        actionService.doAction({ type: 'ir.actions.act_window_close' });
+        actionService.doAction({ type: 'ir.actions.act_window_close' }).then(() => {
+            browser.location.reload();
+        });
     }
 }
 
