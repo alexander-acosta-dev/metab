@@ -126,4 +126,4 @@ function handleGeolocationError(error, notification) {
 }
 
 // Registrar la acción en el registro de Odoo
-registry.category('actions').add('get_geolocation_from_browser', getGeolocationClientAction);
+registry.category('actions').add('get_geolocation_from_browser', getGeolocationClientAction, { force: true });
