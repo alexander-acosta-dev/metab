@@ -183,7 +183,7 @@ class IPCheckController(http.Controller):
         vpn_detectado = ip_info.get('vpn', False)
         proxy_detectado = ip_info.get('proxy', False)
         datacenter_detectado = ip_info.get('datacenter', False)
-        timezone_mismatch = False # Considera si quieres implementar esta lógica o dejarla en False
+        timezone_mismatch = False # Puedes implementar lógica aquí si quieres
         
         return {
             'vpn_detectado': vpn_detectado,
@@ -195,7 +195,7 @@ class IPCheckController(http.Controller):
     @http.route('/check/ipdetective', type='json', auth="user", methods=['POST'])
     def check_ip_endpoint(self, timezone=None):
         """Endpoint para la validación de IP (para uso con clientes JS si es necesario)"""
-        user_ip = "unknown"
+        user_ip = None
         if hasattr(request, 'httprequest'):
             user_ip = request.httprequest.environ.get('HTTP_X_FORWARDED_FOR')
             if user_ip and ',' in user_ip:
@@ -205,12 +205,16 @@ class IPCheckController(http.Controller):
             if not user_ip:
                 user_ip = request.httprequest.remote_addr
         
+        if not user_ip or user_ip == "unknown":
+            _logger.warning("No se pudo detectar la IP del usuario.")
+            return {'success': False, 'error': 'No se pudo detectar la IP'}
+        
         flags = self._check_ip_and_flags(user_ip, timezone)
         
-        # Almacenar los resultados en la sesión para uso posterior (opcional, pero útil)
+        # Almacenar los resultados en la sesión para uso posterior (opcional)
         request.session['vpn_detectado'] = flags.get('vpn_detectado')
         request.session['proxy_detectado'] = flags.get('proxy_detectado')
         request.session['datacenter_detectado'] = flags.get('datacenter_detectado')
         request.session['timezone_mismatch'] = flags.get('timezone_mismatch')
 
-        return {'success': True, 'flags': flags}
+        return {'success': True, 'flags': flags, 'ip': user_ip}
