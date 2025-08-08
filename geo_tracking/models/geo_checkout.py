@@ -2,6 +2,8 @@
 from odoo import models, fields, api, _, http
 from odoo.exceptions import UserError
 import logging
+import requests
+import json
 from math import radians, cos, sin, asin, sqrt
 from datetime import datetime, timedelta
 
@@ -57,63 +59,31 @@ class GeoCheckoutTask(models.Model):
             else:
                 record.visit_duration_formatted = "00:00"
 
-    def _validate_checkout_security(self, user_ip, timezone_client):
-        """Validar la seguridad de la conexión antes del check-out, recibiendo IP y timezone como parámetros."""
+    def _get_ip_info(self, user_ip):
+        """Obtiene la información de la IP usando ip-api.com"""
         try:
-            ip_info = self.env['ip_check.controller']._check_ip_and_flags(user_ip, timezone_client)
+            api_url = f"http://ip-api.com/json/{user_ip}?fields=status,message,country,countryCode,regionName,city,timezone,isp,org,as,proxy,hosting,mobile,query"
+            response = requests.get(api_url, timeout=8)
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get('status') == 'fail':
+                raise Exception(f"IP-API error: {data.get('message')}")
+
+            _logger.info(f"IP Info for {user_ip}: {json.dumps(data, indent=2)}")
+
+            return {
+                'success': True,
+                'proxy': data.get('proxy', False),
+                'ip_data': data
+            }
         except Exception as e:
-            _logger.error(f"Error al obtener información de seguridad de la IP en check-out: {e}")
-            ip_info = {}
-
-        vpn_detectado = ip_info.get('vpn_detectado', False)
-        proxy_detectado = ip_info.get('proxy_detectado', False)
-        datacenter_detectado = ip_info.get('datacenter_detectado', False)
-        timezone_mismatch = ip_info.get('timezone_mismatch', False)
-
-        issues = []
-        if vpn_detectado:
-            issues.append("VPN detectado")
-        if proxy_detectado:
-            issues.append("Proxy detectado")
-        if datacenter_detectado:
-            issues.append("Conexión desde datacenter")
-        if timezone_mismatch:
-            issues.append("Zona horaria no coincide")
-
-        security_info = {
-            'ip': user_ip,
-            'vpn': vpn_detectado,
-            'proxy': proxy_detectado,
-            'datacenter': datacenter_detectado,
-            'timezone_mismatch': timezone_mismatch,
-            'validation_time': fields.Datetime.now().isoformat()
-        }
-
-        self.write({
-            'checkout_ip': user_ip,
-            'checkout_security_flags': str(security_info)
-        })
-
-        if issues:
-            block_reason = f"Check-out bloqueado por conexión sospechosa: {', '.join(issues)}"
-            
-            self.write({
-                'checkout_blocked': True,
-                'checkout_block_reason': block_reason
-            })
-            
-            _logger.warning(f"🚫 {block_reason} - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
-            
-            raise UserError(_(
-                "🚫 Check-out bloqueado por seguridad\n\n"
-                "Razones detectadas:\n• %s\n\n"
-                "IP: %s\n\n"
-                "🔒 Por motivos de seguridad, no se permite el check-out con estas condiciones de red.\n"
-                "💡 Si necesitas usar una conexión específica por motivos laborales, contacta con el administrador del sistema."
-            ) % ("\n• ".join(issues), user_ip))
-
-        _logger.info(f"✅ Validación de seguridad check-out exitosa - Usuario: {self.env.user.name}, Tarea: {self.name}, IP: {user_ip}")
-        return True
+            _logger.error(f"❌ IP-API.com falló: {str(e)}")
+            return {
+                'success': False,
+                'proxy': False,
+                'error': str(e)
+            }
 
     def get_checkout_location_button(self):
         """Inicia el proceso de check-out con geolocalización"""
@@ -142,44 +112,58 @@ class GeoCheckoutTask(models.Model):
             'tag': 'get_geolocation_from_browser_checkout',
             'params': {
                 'task_id': self.id,
-                'action_type': 'checkout',
             },
         }
 
     @api.model
     def get_checkout_location(self, task_id, location_data):
-        """Procesa los datos de ubicación del check-out"""
+        """Procesa los datos de ubicación y realiza la validación de seguridad para el check-out."""
         _logger.info("=== INICIANDO CHECK-OUT PARA TAREA %s ===", task_id)
-        _logger.info("Location data recibida: %s", location_data)
 
         task = self.browse(task_id)
         if not task.exists():
-            _logger.error("Tarea %s no encontrada", task_id)
             raise UserError(_("Tarea no encontrada."))
 
-        _logger.info("Tarea encontrada: %s", task.name)
-
         if not task.checkin_datetime:
-            _logger.error("Tarea %s no tiene check-in previo", task.name)
             raise UserError(_("No se puede hacer check-out sin haber hecho check-in primero."))
 
         if task.checkout_datetime:
-            _logger.error("Tarea %s ya tiene check-out realizado", task.name)
             raise UserError(_("Ya se ha realizado el check-out para esta tarea."))
 
-        # 🔒 CAPTURA DE IP Y VALIDACIÓN DE SEGURIDAD
         user_ip = location_data.get('ip')
-        timezone_client = location_data.get('timezone')
+        ip_info = {}
 
-        if not user_ip:
-            _logger.warning("No se pudo obtener la IP del cliente. El check-out se realizará sin validación de seguridad.")
+        if user_ip:
+            ip_info = task._get_ip_info(user_ip)
+            task.write({
+                'checkout_ip': user_ip,
+                'checkout_security_flags': json.dumps(ip_info.get('ip_data'), indent=2)
+            })
+
+            if ip_info.get('proxy'):
+                block_reason = "Check-out bloqueado por conexión sospechosa: Proxy detectado"
+                task.write({
+                    'checkout_blocked': True,
+                    'checkout_block_reason': block_reason
+                })
+                _logger.warning(f"🚫 {block_reason} - Usuario: {self.env.user.name}, Tarea: {task.name}, IP: {user_ip}")
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': _('Proxy Detectado'),
+                        'message': _("No se puede realizar el check-out porque se ha detectado el uso de un proxy. Por favor, desactive cualquier proxy o VPN e intente de nuevo."),
+                        'type': 'danger',
+                        'sticky': True,
+                        'ip_data': ip_info.get('ip_data')
+                    }
+                }
+        else:
+            _logger.warning("No se pudo obtener la IP del cliente. El check-out continuará sin validación de seguridad.")
             task.write({
                 'checkout_ip': 'unknown',
                 'checkout_security_flags': "IP del cliente no disponible.",
-                'checkout_blocked': False,
             })
-        else:
-            task._validate_checkout_security(user_ip, timezone_client)
 
         latitude = location_data.get('latitude')
         longitude = location_data.get('longitude')
@@ -187,38 +171,35 @@ class GeoCheckoutTask(models.Model):
         distance_km = 0.0
 
         if not latitude or not longitude:
-            _logger.error("No se recibieron datos de ubicación para el check-out de la tarea %s.", task.name)
             raise UserError(_("No se pudo obtener la ubicación del dispositivo. Asegúrate de que los servicios de ubicación estén activados."))
 
-        _logger.info("Coordenadas de check-out recibidas: (%s, %s) con precisión de %s metros para la tarea %s",
-                      latitude, longitude, accuracy, task.name)
-
         if accuracy and accuracy > 200:
-            _logger.warning("Precisión baja check-out: %.3f m", accuracy)
             return {
-                'error_message': _("La precisión de la ubicación es demasiado baja (%.3f m). Intenta nuevamente."),
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'message': _("La precisión de la ubicación es demasiado baja (%.3f m). Intenta nuevamente.") % accuracy,
+                    'type': 'danger',
+                    'sticky': True
+                }
             }
 
         partner = task.partner_id
         if partner and partner.partner_latitude and partner.partner_longitude:
             client_lat = partner.partner_latitude
             client_lon = partner.partner_longitude
-
-            _logger.info("Coordenadas del cliente: (%s, %s)", client_lat, client_lon)
-
             distance_km = task._haversine(client_lat, client_lon, latitude, longitude)
 
-            _logger.info("Distancia calculada en check-out: %.3f km", distance_km)
-
             if distance_km > 0.30:
-                _logger.warning("Check-out fuera de rango para la tarea %s. Distancia: %.3f km.", task.name, distance_km)
                 return {
-                    'error_message': _("Estás fuera del rango permitido, a %.3f km del cliente.") % distance_km,
-                    'distance_km': f"{distance_km:.3f}",
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'message': _("Estás fuera del rango permitido, a %.3f km del cliente.") % distance_km,
+                        'type': 'danger',
+                        'sticky': True,
+                    }
                 }
-        else:
-            _logger.warning("La tarea %s no tiene coordenadas del cliente válidas.", task.name)
-            distance_km = 0.0
 
         checkout_time = fields.Datetime.now()
         task.write({
@@ -235,6 +216,8 @@ class GeoCheckoutTask(models.Model):
         return {
             'distance_km': f"{distance_km:.3f}",
             'duration': task.visit_duration_formatted,
+            'message': _("Check-out realizado con éxito. Duración: %s, Distancia: %.3f km.") % (task.visit_duration_formatted, distance_km),
+            'ip_data': ip_info.get('ip_data')
         }
 
     def _haversine(self, lat1, lon1, lat2, lon2):
@@ -247,32 +230,3 @@ class GeoCheckoutTask(models.Model):
         a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
         c = 2 * asin(sqrt(a))
         return R * c
-
-    # MÉTODOS AUXILIARES PARA ADMINISTRACIÓN
-    def reset_checkout_security_block(self):
-        """Resetear bloqueo de seguridad del check-out (solo administradores)"""
-        self.ensure_one()
-        if not self.env.user.has_group('base.group_system'):
-            raise UserError(_("Solo los administradores pueden resetear bloqueos de seguridad."))
-        
-        self.write({
-            'checkout_blocked': False,
-            'checkout_block_reason': False
-        })
-        
-        _logger.info(f"🔓 Bloqueo de seguridad check-out reseteado por admin - Tarea: {self.name}, Admin: {self.env.user.name}")
-
-    def view_checkout_security_details(self):
-        """Ver detalles de seguridad del check-out"""
-        self.ensure_one()
-        if not self.checkout_security_flags:
-            raise UserError(_("No hay información de seguridad de check-out registrada para esta tarea."))
-        
-        return {
-            'type': 'ir.actions.act_window',
-            'name': f'Detalles de Seguridad Check-out - {self.name}',
-            'res_model': 'project.task',
-            'res_id': self.id,
-            'view_mode': 'form',
-            'target': 'new',
-        }

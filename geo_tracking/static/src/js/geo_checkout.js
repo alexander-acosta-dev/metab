@@ -4,116 +4,126 @@ import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
 import { browser } from "@web/core/browser/browser";
 
-// Función auxiliar para obtener la IP pública
+// Función para obtener la IP pública del usuario
 async function getPublicIpAddress() {
     try {
         const response = await browser.fetch('https://api.ipify.org?format=json');
+        if (!response.ok) {
+            throw new Error('Failed to fetch IP from ipify.org');
+        }
         const data = await response.json();
         return data.ip;
     } catch (error) {
-        console.error("No se pudo obtener la IP pública desde api.ipify.org:", error);
+        console.error("Error getting public IP:", error);
         return null;
     }
 }
 
-// Función de acción para manejar el checkout
+// Función de acción cliente para el check-out
 async function getGeolocationFromBrowserCheckout(env, action) {
     const { task_id } = action.params || {};
-    const notification = env.services.notification;
     const orm = env.services.orm;
+    const notification = env.services.notification;
     const actionService = env.services.action;
-
-    console.log("GeolocationCheckoutAction iniciada con task_id:", task_id);
 
     if (!task_id) {
         notification.add(_t("Error: No se encontró el ID de la tarea."), { type: 'danger', sticky: true });
         return;
     }
 
-    if (!navigator.geolocation) {
-        notification.add(_t("Tu navegador no soporta geolocalización."), { type: 'danger', sticky: true });
+    notification.add(_t("Obteniendo ubicación para check-out..."), { type: 'info', sticky: false });
+
+    const publicIp = await getPublicIpAddress();
+    if (!publicIp) {
+        notification.add(_t("No se pudo obtener tu dirección IP. Verifica tu conexión a internet."), { type: 'danger', sticky: true });
         return;
     }
 
-    notification.add(_t("Obteniendo ubicación para check-out..."), { type: 'info' });
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude, longitude, accuracy } = position.coords;
+                console.log("Ubicación de check-out obtenida:", { latitude, longitude, accuracy });
 
-    const options = {
-        enableHighAccuracy: true,
-        timeout: 30000,
-        maximumAge: 60000
-    };
+                try {
+                    const result = await orm.call(
+                        'project.task',
+                        'get_checkout_location',
+                        [task_id, {
+                            latitude,
+                            longitude,
+                            accuracy,
+                            ip: publicIp,
+                            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        }]
+                    );
 
-    try {
-        const publicIp = await getPublicIpAddress();
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        
-        await new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(
-                async (position) => {
-                    const location_data = {
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        accuracy: position.coords.accuracy,
-                        ip: publicIp, // Enviar la IP al servidor
-                        timezone,
-                    };
-
-                    console.log("Ubicación de check-out obtenida:", location_data);
-
-                    try {
-                        const result = await orm.call(
-                            'project.task',
-                            'get_checkout_location',
-                            [task_id, location_data]
-                        );
-
-                        if (result && result.error_message) {
-                            notification.add(result.error_message, { type: 'danger', sticky: true });
-                        } else {
-                            const message = _t("Check-out realizado con éxito. Duración: %s, Distancia: %s km.")
-                                .replace("%s", result.duration)
-                                .replace("%s", result.distance_km);
-                            notification.add(message, { type: 'success' });
-                            
-                            actionService.doAction({ type: 'ir.actions.act_window_close' }).then(() => {
-                                window.location.reload();
-                            });
-                        }
-                        resolve();
-                    } catch (error) {
-                        const errorMessage = error.message?.data?.message || _t("Error al procesar el check-out.");
-                        console.error("Error en check-out:", error);
-                        notification.add(errorMessage, { type: 'danger', sticky: true });
-                        reject(error);
+                    if (result.ip_data) {
+                        console.log("Datos completos de la IP (Check-out):", result.ip_data);
                     }
-                },
-                (error) => {
-                    let message;
-                    switch(error.code) {
-                        case error.PERMISSION_DENIED:
-                            message = _t("Acceso a la ubicación denegado. Por favor, permite el acceso a la ubicación en tu navegador.");
-                            break;
-                        case error.POSITION_UNAVAILABLE:
-                            message = _t("La ubicación no está disponible. Intenta nuevamente.");
-                            break;
-                        case error.TIMEOUT:
-                            message = _t("Tiempo de espera agotado al obtener la ubicación. Intenta nuevamente.");
-                            break;
-                        default:
-                            message = _t("Error desconocido al obtener la ubicación.");
-                            break;
-                    }
-                    console.error("Error de geolocalización en check-out:", error);
-                    notification.add(message, { type: 'danger', sticky: true });
-                    reject(error);
-                },
-                options
-            );
-        });
-    } catch (error) {
-        console.error("Error al obtener la IP pública:", error);
-        notification.add(_t("Error al obtener la dirección IP para el check-out."), { type: 'danger', sticky: true });
+
+                    handleServerResponse(result, notification, actionService);
+
+                } catch (error) {
+                    handleRpcError(error, notification);
+                }
+            },
+            (error) => {
+                handleGeolocationError(error, notification);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    } else {
+        notification.add(_t("Tu navegador no soporta la geolocalización."), { type: 'danger', sticky: true });
     }
 }
 
-registry.category("actions").add("get_geolocation_from_browser_checkout", getGeolocationFromBrowserCheckout);
+// Función para manejar la respuesta del servidor
+function handleServerResponse(result, notification, actionService) {
+    if (result.type === 'ir.actions.client' && result.tag === 'display_notification') {
+        const params = result.params || {};
+        notification.add(params.message || _t("Error al registrar el check-out"), {
+            title: params.title || _t("Error"),
+            type: params.type || 'danger',
+            sticky: params.sticky !== undefined ? params.sticky : true,
+        });
+    } else {
+        notification.add(result.message || _t("Check-out registrado con éxito"), {
+            type: 'success',
+        });
+        actionService.doAction({ type: 'ir.actions.act_window_close' }).then(() => {
+            browser.location.reload();
+        });
+    }
+}
+
+// Función para manejar errores de RPC
+function handleRpcError(error, notification) {
+    const errorMessage = error.message?.data?.message || _t("Error al procesar la solicitud.");
+    console.error("Error RPC (Check-out):", error);
+    notification.add(errorMessage, { type: 'danger', sticky: true });
+}
+
+// Función para manejar errores de geolocalización
+function handleGeolocationError(error, notification) {
+    let errorMessage;
+    switch (error.code) {
+        case error.PERMISSION_DENIED:
+            errorMessage = _t("Permiso de geolocalización denegado.");
+            break;
+        case error.POSITION_UNAVAILABLE:
+            errorMessage = _t("Información de ubicación no disponible.");
+            break;
+        case error.TIMEOUT:
+            errorMessage = _t("Tiempo de espera agotado para obtener la ubicación.");
+            break;
+        default:
+            errorMessage = _t("Error desconocido de geolocalización.");
+            break;
+    }
+    console.error("Error de geolocalización (Check-out):", error);
+    notification.add(errorMessage, { type: 'danger', sticky: true });
+}
+
+// Registrar la acción en el registro de Odoo
+registry.category("actions").add("get_geolocation_from_browser_checkout", getGeolocationFromBrowserCheckout, { force: true });
