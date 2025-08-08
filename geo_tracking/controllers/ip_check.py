@@ -151,8 +151,9 @@ class IPCheckController(http.Controller):
         return ip_info
 
     @http.route('/check/ipdetective', type='json', auth="user", methods=['POST'])
-    def check_ip_endpoint(self, timezone=None):
-        """Endpoint para validación de IP"""
+    def check_ip_endpoint(self, **post):
+        timezone = post.get('timezone')
+
         user_ip = None
         if hasattr(request, 'httprequest'):
             user_ip = request.httprequest.environ.get('HTTP_X_FORWARDED_FOR')
@@ -171,7 +172,6 @@ class IPCheckController(http.Controller):
 
         ip_timezone = (ip_info.get('timezone') or '').strip().lower()
         client_timezone = (timezone or '').strip().lower()
-
         timezone_mismatch = ip_timezone != client_timezone and client_timezone != ""
 
         _logger.info(f"🌐 Comparación de zonas horarias - IP: {ip_timezone} | Cliente: {client_timezone} | Mismatch: {timezone_mismatch}")
@@ -198,5 +198,6 @@ class IPCheckController(http.Controller):
             'region': ip_info.get('region'),
             'city': ip_info.get('city'),
             'geo_timezone': ip_info.get('timezone'),
+            'browser_timezone': timezone,
             'isp': ip_info.get('isp'),
         }
