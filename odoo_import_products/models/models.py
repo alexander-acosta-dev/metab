@@ -10,7 +10,7 @@ class StockPicking(models.Model):
         # Función que se ejecuta al hacer clic en el botón
         try:
             # URL de la API
-            api_url = "http://tu_api_externa.com/productos"  # Reemplaza con la URL real de tu API
+            api_url = "hhttp://127.0.0.1:8000/productos"  # Reemplaza con la URL real de tu API
 
             # Realizar la solicitud GET a la API
             response = requests.get(api_url)
