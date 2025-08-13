@@ -1,5 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Menú principal en Inventario -->
+    <!-- Definimos primero la acción -->
+    <record id="action_import_products_wizard" model="ir.actions.act_window">
+        <field name="name">Importar Productos desde API</field>
+        <field name="res_model">product.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="product.model_product_product"/>
+    </record>
+
+    <!-- Luego definimos los menús que usan esa acción -->
     <menuitem 
         id="menu_import_products_root" 
         name="Importar Productos" 
@@ -11,13 +21,4 @@
         name="Importar desde API" 
         parent="menu_import_products_root"
         action="action_import_products_wizard"/>
-
-    <!-- Acción para abrir el wizard -->
-    <record id="action_import_products_wizard" model="ir.actions.act_window">
-        <field name="name">Importar Productos desde API</field>
-        <field name="res_model">product.import.wizard</field>
-        <field name="view_mode">form</field>
-        <field name="target">new</field>
-        <field name="binding_model_id" ref="product.model_product_product"/>
-    </record>
 </odoo>
