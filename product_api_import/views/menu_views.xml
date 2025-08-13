@@ -1,0 +1,10 @@
+<odoo>
+    <!-- Menú principal dentro de Inventario -->
+    <menuitem 
+        id="menu_product_api_import" 
+        name="Importar Productos API" 
+        action="action_product_api_import" 
+        parent="stock.menu_stock_root"
+        sequence="20"
+    />
+</odoo>

@@ -1,23 +1,19 @@
 <odoo>
-    <!-- Heredar la vista de tipos de operación para añadir botón -->
+    <!-- Heredar la vista árbol de tipos de operación -->
     <record id="view_picking_type_tree_inherit" model="ir.ui.view">
         <field name="name">stock.picking.type.tree.inherit</field>
         <field name="model">stock.picking.type</field>
         <field name="inherit_id" ref="stock.view_picking_type_tree"/>
         <field name="arch" type="xml">
-            <!-- Añadir botón usando xpath correctamente -->
-            <xpath expr="//div[hasclass('o_content')]//div[hasclass('o_view_controller')]//div[hasclass('o_cp_controller')]//div[hasclass('o_cp_searchview')]" position="after">
-                <div class="o_cp_left">
-                    <div class="o_cp_buttons">
-                        <button 
-                            name="button_import_from_api" 
-                            type="object" 
-                            class="btn-primary"
-                            icon="fa-download"
-                            string="Importar desde API"
-                        />
-                    </div>
-                </div>
+            <!-- Añadir botón al lado de la búsqueda -->
+            <xpath expr="//search" position="after">
+                <button 
+                    name="button_import_from_api" 
+                    type="object" 
+                    class="oe_highlight"
+                    icon="fa-download"
+                    string="Importar desde API"
+                />
             </xpath>
         </field>
     </record>

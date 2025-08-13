@@ -1,24 +1,11 @@
 /* Estilos específicos para el módulo */
-/* Estilo para el botón al lado de la búsqueda */
-.o_searchview {
-    display: inline-flex;
-    align-items: center;
-    margin-right: 8px;
+/* Estilo para el botón de importación */
+button[name="button_import_from_api"] {
+    margin-left: 10px;
+    padding: 8px 16px;
 }
 
-.o_searchview + .btn-primary {
-    margin-left: 8px;
-    height: 32px;
-    align-self: center;
-}
-
-/* Estilo para el formulario de importación */
-.o_form_view .oe_title h1 {
-    color: #7c7bad;
-}
-
-/* Estilo para el botón en la vista árbol */
-.o_list_view .oe_button_box {
-    display: inline-block;
-    margin-left: 16px;
+/* Icono del botón */
+button[name="button_import_from_api"] .fa {
+    margin-right: 5px;
 }
