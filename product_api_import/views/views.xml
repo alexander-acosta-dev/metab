@@ -1,0 +1,28 @@
+<odoo>
+    <record id="view_product_api_import" model="ir.ui.view">
+        <field name="name">product.api.import.view</field>
+        <field name="model">product.api.import</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>Importar Productos desde API</h1>
+                    </div>
+                    <div class="oe_button_box">
+                        <button name="import_products" type="object" class="btn-primary">Consumir API</button>
+                    </div>
+                    <div id="import_results" class="mt16"></div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_product_api_import" model="ir.actions.act_window">
+        <field name="name">Importar Productos API</field>
+        <field name="res_model">product.api.import</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_product_api_import" name="Importar Productos" action="action_product_api_import" parent="product.menu_product"/>
+</odoo>
