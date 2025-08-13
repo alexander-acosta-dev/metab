@@ -1,0 +1,17 @@
+<odoo>
+    <record id="view_product_template_form_inherit" model="ir.ui.view">
+        <field name="name">product.template.form.inherit.import</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button 
+                    name="import_products_from_api" 
+                    string="Importar desde API" 
+                    type="object"
+                    class="btn-primary"
+                    groups="stock.group_stock_manager"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
