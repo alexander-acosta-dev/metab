@@ -1,70 +1,81 @@
-# -*- coding: utf-8 -*-
 import requests
+import logging
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
-import logging
 
 _logger = logging.getLogger(__name__)
 
-class ProductTemplate(models.Model):
-    _inherit = 'product.template'
+class ProductImportWizard(models.TransientModel):
+    _name = 'product.import.wizard'
+    _description = 'Asistente para importar productos desde API'
 
-    def import_products_from_api(self):
-        # URL de la API que proporcionaste
+    def _default_product_ids(self):
+        return self.env.context.get('active_ids', [])
+
+    product_ids = fields.Many2many(
+        'product.product',
+        default=_default_product_ids,
+        string='Productos a actualizar'
+    )
+
+    def action_import_products(self):
+        self.ensure_one()
         api_url = "http://tu-servidor-fastapi/productos"
         
         try:
-            # Hacer la petición GET a la API
-            response = requests.get(api_url)
-            response.raise_for_status()  # Lanza excepción si hay error HTTP
-            
+            response = requests.get(api_url, timeout=10)
+            response.raise_for_status()
             products_data = response.json().get('data', [])
-            
+
             if not products_data:
                 raise UserError(_("No se encontraron productos en la API"))
-            
-            # Contadores para el resumen
-            created = 0
-            updated = 0
-            
+
             ProductProduct = self.env['product.product']
             ProductTemplate = self.env['product.template']
-            
+
+            created = updated = 0
+
             for product_data in products_data:
-                # Buscar producto existente por código de barras (KOPR)
-                product = ProductProduct.search([
-                    ('barcode', '=', product_data.get('KOPR'))
-                ], limit=1)
-                
+                barcode = product_data.get('KOPR')
+                existing_product = ProductProduct.search([('barcode', '=', barcode)], limit=1)
+
                 vals = {
-                    'name': product_data.get('NOKOPR', 'Sin nombre'),
-                    'barcode': product_data.get('KOPR'),
-                    'list_price': product_data.get('POIVPR', 0),
-                    'type': 'product',  # Producto almacenable
-                    'detailed_type': 'product',
+                    'name': product_data.get('NOKOPR', '').strip(),
+                    'barcode': barcode,
+                    'list_price': float(product_data.get('POIVPR', 0)),
+                    'type': 'product',
                 }
-                
-                if product:
-                    # Actualizar producto existente
-                    product.write(vals)
+
+                if existing_product:
+                    existing_product.write(vals)
                     updated += 1
                 else:
-                    # Crear nuevo producto
                     ProductTemplate.create(vals)
                     created += 1
-            
-            # Mostrar resumen al usuario
+
+            message = _("""
+                <b>Importación completada:</b><br/>
+                • Productos creados: %(created)d<br/>
+                • Productos actualizados: %(updated)d
+            """) % {'created': created, 'updated': updated}
+
             return {
-                'effect': {
-                    'fadeout': 'slow',
-                    'message': f"Importación completada: {created} nuevos productos, {updated} actualizados",
-                    'type': 'rainbow_man',
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Éxito'),
+                    'message': message,
+                    'sticky': True,
+                    'type': 'success',
                 }
             }
-            
+
         except requests.exceptions.RequestException as e:
-            _logger.error("Error al conectar con la API: %s", str(e))
+            _logger.error("Error de conexión: %s", e)
             raise UserError(_("Error al conectar con la API: %s") % str(e))
+        except ValueError as e:
+            _logger.error("Error en datos: %s", e)
+            raise UserError(_("Error en los datos recibidos: %s") % str(e))
         except Exception as e:
-            _logger.error("Error inesperado: %s", str(e))
+            _logger.error("Error inesperado: %s", e)
             raise UserError(_("Error inesperado: %s") % str(e))
