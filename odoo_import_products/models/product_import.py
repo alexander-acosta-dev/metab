@@ -6,9 +6,8 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
-class ProductImport(models.Model):
-    _name = 'product.import'
-    _description = 'Importación de Productos desde API'
+class ProductTemplate(models.Model):
+    _inherit = 'product.template'
 
     def import_products_from_api(self):
         # URL de la API que proporcionaste
