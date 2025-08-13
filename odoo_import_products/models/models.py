@@ -10,10 +10,15 @@ class StockPicking(models.Model):
         # Función que se ejecuta al hacer clic en el botón
         try:
             # URL de la API
-            api_url = "https://pokeapi.co/api/v2/pokemon/ditto"  # Reemplaza con la URL real de tu API
+            api_url = "http://seguimiento.random.cl:51034"  # Reemplaza con la URL real de tu API
 
-            # Realizar la solicitud GET a la API
-            response = requests.get(api_url)
+            # Configurar los headers con el token Bearer
+            headers = {
+                'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IkE5NzgyRkQ5LTYzNzgtRjAxMS04OThGLTk4RjJCMzI2NTZCRSIsInVzZXJuYW1lIjoiYWRtaW5Ac29tZS5jb20iLCJpYXQiOjE3NTUxNjMyNTUsImV4cCI6MTc1NTE2Njg1NX0.rly7yNMFUINVrNWkBDvLgAGB2UFK_mu9qoUaAWV3b0I'
+            }
+
+            # Realizar la solicitud GET a la API con los headers
+            response = requests.get(api_url, headers=headers)
 
             # Verificar si la solicitud fue exitosa (código 200)
             if response.status_code == 200:
@@ -69,3 +74,5 @@ class StockPicking(models.Model):
         except Exception as e:
             # Manejar otros errores
             raise UserError(f"Error al importar productos: {e}")
+
+####
