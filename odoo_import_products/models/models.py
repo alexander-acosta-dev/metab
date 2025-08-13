@@ -10,7 +10,7 @@ class StockPicking(models.Model):
         # Función que se ejecuta al hacer clic en el botón
         try:
             # URL de la API
-            api_url = "http://seguimiento.random.cl:51034"  # Reemplaza con la URL real de tu API
+            api_url = "http://seguimiento.random.cl:51034/productos"  # Reemplaza con la URL real de tu API
 
             # Configurar los headers con el token Bearer
             headers = {
