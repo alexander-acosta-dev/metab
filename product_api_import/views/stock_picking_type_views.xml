@@ -1,11 +1,22 @@
 <odoo>
-    <!-- Heredar la vista de filtro de tipos de operación -->
+    <!-- Heredar la vista de tipos de operación -->
+    <record id="view_picking_type_tree_inherit" model="ir.ui.view">
+        <field name="name">stock.picking.type.tree.inherit</field>
+        <field name="model">stock.picking.type</field>
+        <field name="inherit_id" ref="stock.view_picking_type_tree"/>
+        <field name="arch" type="xml">
+            <field name="name" position="after">
+                <field name="is_api_import" string="API Import"/>
+            </field>
+        </field>
+    </record>
+
+    <!-- Heredar la vista de filtro -->
     <record id="view_pickingtype_filter_inherit" model="ir.ui.view">
         <field name="name">stock.picking.type.filter.inherit</field>
         <field name="model">stock.picking.type</field>
         <field name="inherit_id" ref="stock.view_pickingtype_filter"/>
         <field name="arch" type="xml">
-            <!-- Añadir nuevo filtro para API -->
             <xpath expr="//filter[last()]" position="after">
                 <filter name="filter_api_import" string="Importados por API" domain="[('is_api_import', '=', True)]"/>
             </xpath>

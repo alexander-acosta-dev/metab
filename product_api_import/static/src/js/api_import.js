@@ -9,47 +9,54 @@ odoo.define('product_api_import.ImportButton', function (require) {
     FormController.include({
         renderButtons: function ($node) {
             this._super.apply(this, arguments);
-            var self = this;
-
             if (this.modelName === 'product.api.import') {
-                this.$buttons.find('button[name="button_import_products"]').on('click', function() {
-                    self._importProducts();
-                });
+                this.$buttons.find('button[name="button_import_products"]')
+                    .off('click')
+                    .on('click', this._importProducts.bind(this));
             }
         },
 
         _importProducts: function() {
             var self = this;
             var $button = this.$buttons.find('button[name="button_import_products"]');
-            $button.prop('disabled', true).prepend('<i class="fa fa-spinner fa-spin mr-2"/>');
             
+            // Mostrar spinner y deshabilitar botón
+            $button.prop('disabled', true)
+                   .prepend($('<i/>', {class: 'fa fa-spinner fa-spin mr-2'}));
+
             rpc.query({
                 route: '/product_api/import',
             }).then(function(result) {
+                // Restaurar botón
                 $button.prop('disabled', false).find('i').remove();
                 
                 if (result.success) {
-                    self.do_notify(
-                        _t("Éxito"),
-                        result.result.params.message || _t("Operación completada"),
-                        true
-                    );
+                    self.displayNotification({
+                        title: _t("Éxito"),
+                        message: result.result && result.result.params ? 
+                                result.result.params.message : 
+                                _t("Importación completada"),
+                        type: 'success',
+                        sticky: false
+                    });
                     self.reload();
                 } else {
-                    self.do_warn(
-                        _t("Error"),
-                        result.error || _t("Error desconocido al importar productos"),
-                        true
-                    );
+                    self.displayNotification({
+                        title: _t("Error"),
+                        message: result.error || _t("Error desconocido"),
+                        type: 'danger',
+                        sticky: true
+                    });
                 }
             }).catch(function(error) {
                 $button.prop('disabled', false).find('i').remove();
-                self.do_warn(
-                    _t("Error"),
-                    _t("Error en la comunicación con el servidor"),
-                    true
-                );
-                console.error(error);
+                self.displayNotification({
+                    title: _t("Error"),
+                    message: _t("Error en la comunicación con el servidor"),
+                    type: 'danger',
+                    sticky: true
+                });
+                console.error("API Import Error:", error);
             });
         }
     });

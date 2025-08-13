@@ -26,21 +26,14 @@
         <field name="res_model">product.api.import</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
-        <field name="context">{'create': False}</field>
     </record>
 
-    <!-- Menú principal -->
-    <menuitem 
-        id="menu_root_import" 
-        name="Importaciones API" 
-        sequence="100"
-    />
-    
+    <!-- Menú principal - Ubicado dentro de Inventario -->
     <menuitem 
         id="menu_product_api_import" 
         name="Importar Productos" 
         action="action_product_api_import" 
-        parent="menu_root_import"
-        sequence="10"
+        parent="stock.menu_stock_root"
+        sequence="100"
     />
 </odoo>
