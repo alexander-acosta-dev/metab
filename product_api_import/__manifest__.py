@@ -11,7 +11,6 @@
     'data': [
         'views/views.xml',
         'views/stock_picking_type_views.xml',
-        'views/templates.xml',
     ],
     'assets': {
         'web.assets_backend': [

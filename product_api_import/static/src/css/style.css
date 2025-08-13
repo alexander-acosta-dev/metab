@@ -1,24 +1,24 @@
 /* Estilos específicos para el módulo */
-.o_form_view .oe_button_box .oe_stat_button .o_button_icon {
+/* Estilo para el botón al lado de la búsqueda */
+.o_searchview {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 8px;
+}
+
+.o_searchview + .btn-primary {
+    margin-left: 8px;
+    height: 32px;
+    align-self: center;
+}
+
+/* Estilo para el formulario de importación */
+.o_form_view .oe_title h1 {
     color: #7c7bad;
 }
 
-/* Spinner para el botón de importación */
-.btn-primary .fa-spinner {
-    margin-right: 8px;
-    color: white;
-}
-
-/* Contenedor de resultados */
-#import_results {
-    padding: 16px;
-    margin-top: 16px;
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    border: 1px solid #dee2e6;
-}
-
-/* Notificaciones */
-.o_notification_manager .o_notification {
-    min-width: 300px;
+/* Estilo para el botón en la vista árbol */
+.o_list_view .oe_button_box {
+    display: inline-block;
+    margin-left: 16px;
 }

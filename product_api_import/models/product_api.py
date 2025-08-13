@@ -9,11 +9,15 @@ class ProductAPI(models.Model):
     _name = 'product.api.import'
     _description = 'Importación de Productos desde API'
 
+    picking_type_id = fields.Many2one(
+        'stock.picking.type',
+        string='Tipo de Operación'
+    )
+
     def button_import_products(self):
-        """Método llamado por el botón en la vista"""
+        """Método principal de importación"""
         self.ensure_one()
         try:
-            # URL de tu API FastAPI
             api_url = "http://192.168.1.100:8000/productos"
             response = requests.get(api_url, timeout=10)
             
@@ -23,7 +27,6 @@ class ProductAPI(models.Model):
                 updated_count = 0
                 
                 for product in products_data:
-                    # Buscar producto por código de barras (barcode)
                     existing_product = self.env['product.product'].search([
                         ('barcode', '=', product.get('KOPR'))
                     ], limit=1)
@@ -33,7 +36,6 @@ class ProductAPI(models.Model):
                         'name': product.get('NOKOPR'),
                         'list_price': product.get('POIVPR', 0),
                         'type': 'product',
-                        'detailed_type': 'product',
                     }
                     
                     if existing_product:
@@ -43,7 +45,10 @@ class ProductAPI(models.Model):
                         self.env['product.product'].create(product_vals)
                         created_count += 1
                 
-                # Mostrar notificación
+                # Marcar el tipo de operación si se especificó
+                if self.picking_type_id:
+                    self.picking_type_id.write({'is_api_import': True})
+                
                 return {
                     'type': 'ir.actions.client',
                     'tag': 'display_notification',
@@ -56,15 +61,8 @@ class ProductAPI(models.Model):
                     }
                 }
             else:
-                error_msg = _("Error al consumir API: %s") % response.status_code
-                _logger.error(error_msg)
-                raise UserError(error_msg)
+                raise UserError(_("Error en la API: Código %s") % response.status_code)
                 
-        except requests.exceptions.RequestException as e:
-            error_msg = _("Error de conexión: %s") % str(e)
-            _logger.error(error_msg)
-            raise UserError(error_msg)
         except Exception as e:
-            error_msg = _("Error inesperado: %s") % str(e)
-            _logger.error(error_msg)
-            raise UserError(error_msg)
+            _logger.error("Error en importación: %s", str(e))
+            raise UserError(_("Error al importar: %s") % str(e))

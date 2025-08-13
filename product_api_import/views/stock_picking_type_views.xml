@@ -1,25 +1,27 @@
 <odoo>
-    <!-- Heredar la vista de tipos de operación -->
+    <!-- Heredar la vista de tipos de operación para añadir botón -->
     <record id="view_picking_type_tree_inherit" model="ir.ui.view">
         <field name="name">stock.picking.type.tree.inherit</field>
         <field name="model">stock.picking.type</field>
         <field name="inherit_id" ref="stock.view_picking_type_tree"/>
         <field name="arch" type="xml">
-            <field name="name" position="after">
-                <field name="is_api_import" string="API Import"/>
-            </field>
-        </field>
-    </record>
-
-    <!-- Heredar la vista de filtro -->
-    <record id="view_pickingtype_filter_inherit" model="ir.ui.view">
-        <field name="name">stock.picking.type.filter.inherit</field>
-        <field name="model">stock.picking.type</field>
-        <field name="inherit_id" ref="stock.view_pickingtype_filter"/>
-        <field name="arch" type="xml">
-            <xpath expr="//filter[last()]" position="after">
-                <filter name="filter_api_import" string="Importados por API" domain="[('is_api_import', '=', True)]"/>
+            <!-- Añadir botón al lado de la barra de búsqueda -->
+            <xpath expr="//search" position="after">
+                <div class="oe_button_box" name="button_box">
+                    <button 
+                        name="button_import_from_api" 
+                        type="object" 
+                        class="btn-primary"
+                        icon="fa-download"
+                        string="Importar desde API"
+                    />
+                </div>
             </xpath>
+            
+            <!-- Opcional: Añadir campo en la vista árbol -->
+            <field name="name" position="after">
+                <field name="is_api_import" string="API Import" invisible="1"/>
+            </field>
         </field>
     </record>
 </odoo>

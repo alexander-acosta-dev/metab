@@ -6,13 +6,16 @@ class StockPickingType(models.Model):
     is_api_import = fields.Boolean(
         string='Importado por API',
         default=False,
-        help='Indica si este tipo de operación fue importado desde la API externa',
-        tracking=True
+        help='Indica si este tipo de operación fue importado desde la API externa'
     )
 
-    @api.model
-    def create(self, vals):
-        """Marcar tipos de operación creados por API"""
-        if self.env.context.get('from_api_import'):
-            vals['is_api_import'] = True
-        return super().create(vals)
+    def button_import_from_api(self):
+        """Método llamado por el botón en la vista árbol"""
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Importar Productos desde API',
+            'res_model': 'product.api.import',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {'default_picking_type_id': self.id},
+        }
