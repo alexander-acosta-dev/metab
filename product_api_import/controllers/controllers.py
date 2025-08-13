@@ -7,8 +7,10 @@ class ProductAPIController(http.Controller):
     @http.route('/product_api/import', type='json', auth='user')
     def import_products(self):
         try:
-            ProductAPI = request.env['product.api.import']
+            ProductAPI = request.env['product.api.import'].sudo()
             result = ProductAPI.button_import_products()
             return {'success': True, 'result': result}
+        except UserError as e:
+            return {'success': False, 'error': e.name}
         except Exception as e:
             return {'success': False, 'error': str(e)}

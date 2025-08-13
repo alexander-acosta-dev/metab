@@ -1,4 +1,5 @@
 <odoo>
+    <!-- Vista principal para la importación -->
     <record id="view_product_api_import" model="ir.ui.view">
         <field name="name">product.api.import.view</field>
         <field name="model">product.api.import</field>
@@ -19,12 +20,27 @@
         </field>
     </record>
 
+    <!-- Acción de ventana -->
     <record id="action_product_api_import" model="ir.actions.act_window">
         <field name="name">Importar Productos API</field>
         <field name="res_model">product.api.import</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
+        <field name="context">{'create': False}</field>
     </record>
 
-    <menuitem id="menu_product_api_import" name="Importar Productos" action="action_product_api_import" parent="product.menu_product"/>
+    <!-- Menú principal -->
+    <menuitem 
+        id="menu_root_import" 
+        name="Importaciones API" 
+        sequence="100"
+    />
+    
+    <menuitem 
+        id="menu_product_api_import" 
+        name="Importar Productos" 
+        action="action_product_api_import" 
+        parent="menu_root_import"
+        sequence="10"
+    />
 </odoo>

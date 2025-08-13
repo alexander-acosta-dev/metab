@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Importar Productos desde API',
-    'version': '1.0',
+    'version': '1.0.0',
     'summary': 'Importa productos desde API externa',
     'description': 'Módulo para consumir API FastAPI e importar productos a Odoo',
     'author': 'Tu Nombre',
-    'depends': ['base', 'product'],
-    'license':'LGPL-3',
+    'website': 'https://www.tudominio.com',
+    'license': 'LGPL-3',
+    'depends': ['base', 'product', 'stock'],
     'data': [
         'views/views.xml',
+        'views/stock_picking_type_views.xml',
         'views/templates.xml',
     ],
     'assets': {
@@ -19,4 +21,5 @@
     },
     'installable': True,
     'application': True,
+    'auto_install': False,
 }

@@ -1,4 +1,5 @@
-from odoo import models, fields, api
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 import requests
 import logging
 
@@ -10,10 +11,11 @@ class ProductAPI(models.Model):
 
     def button_import_products(self):
         """Método llamado por el botón en la vista"""
+        self.ensure_one()
         try:
             # URL de tu API FastAPI
             api_url = "http://192.168.1.100:8000/productos"
-            response = requests.get(api_url)
+            response = requests.get(api_url, timeout=10)
             
             if response.status_code == 200:
                 products_data = response.json().get('data', [])
@@ -41,21 +43,28 @@ class ProductAPI(models.Model):
                         self.env['product.product'].create(product_vals)
                         created_count += 1
                 
-                # Mostrar notificación en la interfaz
+                # Mostrar notificación
                 return {
                     'type': 'ir.actions.client',
                     'tag': 'display_notification',
                     'params': {
-                        'title': 'Importación completada',
-                        'message': f'Productos creados: {created_count}, Actualizados: {updated_count}',
+                        'title': _('Importación completada'),
+                        'message': _('Productos creados: %s, Actualizados: %s') % (created_count, updated_count),
                         'type': 'success',
                         'sticky': False,
+                        'next': {'type': 'ir.actions.act_window_close'},
                     }
                 }
             else:
-                _logger.error(f"Error al consumir API: {response.status_code}")
-                raise UserError(f"Error API: {response.status_code}")
+                error_msg = _("Error al consumir API: %s") % response.status_code
+                _logger.error(error_msg)
+                raise UserError(error_msg)
                 
+        except requests.exceptions.RequestException as e:
+            error_msg = _("Error de conexión: %s") % str(e)
+            _logger.error(error_msg)
+            raise UserError(error_msg)
         except Exception as e:
-            _logger.error(f"Excepción al importar productos: {str(e)}")
-            raise UserError(f"Error: {str(e)}")
+            error_msg = _("Error inesperado: %s") % str(e)
+            _logger.error(error_msg)
+            raise UserError(error_msg)

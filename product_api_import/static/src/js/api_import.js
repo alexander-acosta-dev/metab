@@ -12,7 +12,7 @@ odoo.define('product_api_import.ImportButton', function (require) {
             var self = this;
 
             if (this.modelName === 'product.api.import') {
-                this.$buttons.find('button[name="button_import_products"]').click(function() {
+                this.$buttons.find('button[name="button_import_products"]').on('click', function() {
                     self._importProducts();
                 });
             }
@@ -20,25 +20,36 @@ odoo.define('product_api_import.ImportButton', function (require) {
 
         _importProducts: function() {
             var self = this;
-            this.$buttons.find('button').prop('disabled', true);
+            var $button = this.$buttons.find('button[name="button_import_products"]');
+            $button.prop('disabled', true).prepend('<i class="fa fa-spinner fa-spin mr-2"/>');
             
             rpc.query({
                 route: '/product_api/import',
             }).then(function(result) {
-                self.$buttons.find('button').prop('disabled', false);
+                $button.prop('disabled', false).find('i').remove();
                 
                 if (result.success) {
                     self.do_notify(
                         _t("Éxito"),
-                        _t("Importación completada correctamente"),
+                        result.result.params.message || _t("Operación completada"),
                         true
                     );
+                    self.reload();
                 } else {
                     self.do_warn(
                         _t("Error"),
-                        result.error || _t("Error desconocido al importar productos")
+                        result.error || _t("Error desconocido al importar productos"),
+                        true
                     );
                 }
+            }).catch(function(error) {
+                $button.prop('disabled', false).find('i').remove();
+                self.do_warn(
+                    _t("Error"),
+                    _t("Error en la comunicación con el servidor"),
+                    true
+                );
+                console.error(error);
             });
         }
     });
