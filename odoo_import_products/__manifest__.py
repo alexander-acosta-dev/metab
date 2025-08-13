@@ -8,7 +8,7 @@
     'website': "http://www.tuempresa.com",
     'depends': ['stock', 'product'],
     'data': [
-        'views/product_import_views.xml',
+        'views/product_menu_views.xml',
     ],
     'installable': True,
     'application': False,
