@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from odoo import models, fields, api
 import requests
 import logging
@@ -9,7 +8,8 @@ class ProductAPI(models.Model):
     _name = 'product.api.import'
     _description = 'Importación de Productos desde API'
 
-    def import_products_from_api(self):
+    def button_import_products(self):
+        """Método llamado por el botón en la vista"""
         try:
             # URL de tu API FastAPI
             api_url = "http://192.168.1.100:8000/productos"
@@ -30,7 +30,7 @@ class ProductAPI(models.Model):
                         'barcode': product.get('KOPR'),
                         'name': product.get('NOKOPR'),
                         'list_price': product.get('POIVPR', 0),
-                        'type': 'product',  # Tipo producto almacenable
+                        'type': 'product',
                         'detailed_type': 'product',
                     }
                     
@@ -41,15 +41,21 @@ class ProductAPI(models.Model):
                         self.env['product.product'].create(product_vals)
                         created_count += 1
                 
+                # Mostrar notificación en la interfaz
                 return {
-                    'created': created_count,
-                    'updated': updated_count,
-                    'total': len(products_data)
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'Importación completada',
+                        'message': f'Productos creados: {created_count}, Actualizados: {updated_count}',
+                        'type': 'success',
+                        'sticky': False,
+                    }
                 }
             else:
                 _logger.error(f"Error al consumir API: {response.status_code}")
-                return {'error': f"Error API: {response.status_code}"}
+                raise UserError(f"Error API: {response.status_code}")
                 
         except Exception as e:
             _logger.error(f"Excepción al importar productos: {str(e)}")
-            return {'error': str(e)}
+            raise UserError(f"Error: {str(e)}")
