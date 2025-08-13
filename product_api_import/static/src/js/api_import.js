@@ -9,10 +9,12 @@ odoo.define('product_api_import.PickingTypeList', function (require) {
         renderButtons: function ($node) {
             this._super.apply(this, arguments);
             if (this.modelName === 'stock.picking.type') {
-                // Mover el botón al lado de la búsqueda
-                var $button = this.$buttons.find('button[name="button_import_from_api"]');
-                $button.detach().insertAfter(this.$('.o_searchview'));
-                $button.addClass('ml-2');
+                // Asegurar que el botón se posicione correctamente
+                var $searchView = this.$('.o_searchview');
+                if ($searchView.length) {
+                    var $button = this.$buttons.find('button[name="button_import_from_api"]');
+                    $button.addClass('ml-2').insertAfter($searchView);
+                }
             }
         }
     });

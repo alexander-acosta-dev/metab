@@ -1,5 +1,5 @@
 <odoo>
-    <!-- Vista de importación de productos -->
+    <!-- Vista de importación de productos CORREGIDA -->
     <record id="view_product_api_import_form" model="ir.ui.view">
         <field name="name">product.api.import.form</field>
         <field name="model">product.api.import</field>
@@ -7,9 +7,10 @@
             <form>
                 <sheet>
                     <group>
-                        <field name="picking_type_id" 
-                               options="{'no_open': True}" 
-                               attrs="{'required': [('id', '!=', False)]}"/>
+                        <field name="picking_type_id">
+                            <!-- Nueva sintaxis para requerido -->
+                            <filter domain="[('id', '!=', False)]" string="Required"/>
+                        </field>
                     </group>
                     <footer>
                         <button name="button_import_products" 
