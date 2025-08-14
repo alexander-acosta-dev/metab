@@ -1,6 +1,6 @@
 from odoo import models, fields, api
 import requests
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, Warning
 import json
 
 class StockPickingType(models.Model):
@@ -91,10 +91,17 @@ class StockPickingType(models.Model):
             
             self.env.cr.commit()
             
-            # Mostrar resumen al usuario
-            raise UserError(
-                f"Importación completada:\n• Productos creados: {productos_creados}\n• Productos actualizados: {productos_actualizados}"
-            )
+            # Mostrar resumen al usuario (usando Warning en lugar de UserError para mensajes informativos)
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Importación completada',
+                    'message': f'• Productos creados: {productos_creados}\n• Productos actualizados: {productos_actualizados}',
+                    'sticky': True,
+                    'type': 'success',
+                }
+            }
             
         except requests.exceptions.Timeout:
             raise UserError("Tiempo de espera agotado al conectar con la API. Inténtalo de nuevo.")
