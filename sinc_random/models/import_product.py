@@ -13,7 +13,7 @@ class StockPickingType(models.Model):
     @api.model
     def importar_productos_desde_api(self):
         """
-        Importa productos desde API externa y muestra notificación flotante con resultados
+        Importa productos desde API externa con sus precios correspondientes
         """
         try:
             # 1. Configuración de la API
@@ -45,71 +45,111 @@ class StockPickingType(models.Model):
             precios_url = f"{base_url}/web32/precios/pidelistaprecio"
             precios_response = requests.get(precios_url, headers=headers, timeout=60)
             
-            if precios_response.status_code != 200:
-                _logger.warning("Error al obtener precios, se usarán precios por defecto")
-                precios_data = []
+            precios_data = []
+            if precios_response.status_code == 200:
+                try:
+                    precios_data = precios_response.json()
+                    _logger.info("Datos de precios obtenidos correctamente")
+                except ValueError:
+                    _logger.warning("Respuesta de precios no es JSON válido")
             else:
-                precios_data = precios_response.json()
+                _logger.warning(f"Error al obtener precios: {precios_response.status_code}")
             
-            # 4. Procesar precios
-            precios_por_kopr = self._procesar_precios(precios_data)
+            # 4. Procesar precios - Versión mejorada
+            precios_por_kopr = {}
+            for item in precios_data:
+                try:
+                    kopr = item.get('kopr')
+                    if not kopr:
+                        continue
+                        
+                    # Buscar el primer precio bruto disponible en cualquier unidad
+                    for unidad in item.get('unidades', []):
+                        prunbruto = unidad.get('prunbruto', [{}])
+                        if prunbruto and isinstance(prunbruto, list):
+                            precio = prunbruto[0].get('f')
+                            if precio is not None:  # Acepta 0 como valor válido
+                                precios_por_kopr[kopr] = float(precio)
+                                break
+                except Exception as e:
+                    _logger.warning(f"Error procesando precio para KOPR {kopr}: {str(e)}")
+                    continue
             
-            # 5. Importar productos con precios
-            resultados = self._procesar_productos(productos_data, precios_por_kopr)
-            _logger.info(
-                "Importación completada: %d creados, %d actualizados",
-                resultados['creados'],
-                resultados['actualizados']
-            )
+            _logger.info(f"Se procesaron {len(precios_por_kopr)} precios correctamente")
+            
+            # 5. Procesar productos con precios
+            resultados = self._procesar_productos_con_precios(productos_data, precios_por_kopr)
             
             return self._mostrar_notificacion_exito(
                 resultados['creados'],
-                resultados['actualizados']
+                resultados['actualizados'],
+                resultados['sin_precio']
             )
             
-        except requests.exceptions.Timeout:
-            _logger.error("Timeout al conectar con la API")
-            raise UserError("Tiempo de espera agotado. Inténtalo de nuevo.")
-        except requests.exceptions.ConnectionError:
-            _logger.error("Error de conexión con la API")
-            raise UserError("Error de conexión. Verifica que el servidor esté disponible.")
+        except requests.exceptions.RequestException as e:
+            _logger.error(f"Error de conexión: {str(e)}")
+            raise UserError(f"Error de conexión: {str(e)}")
         except Exception as e:
             _logger.exception("Error inesperado al importar productos")
-            self.env.cr.rollback()
             raise UserError(f"Error inesperado: {str(e)}")
     
-    def _procesar_precios(self, precios_data):
-        """Procesa los datos de precios y retorna diccionario {KOPR: precio}"""
-        precios_por_kopr = {}
+    def _procesar_productos_con_precios(self, productos_data, precios_por_kopr):
+        """Procesa productos con manejo detallado de precios"""
+        ProductProduct = self.env['product.product']
+        creados = 0
+        actualizados = 0
+        sin_precio = 0
         
-        if not isinstance(precios_data, list):
-            _logger.warning("Formato de precios no reconocido")
-            return precios_por_kopr
-            
-        for item in precios_data:
+        for item in productos_data:
             if not isinstance(item, dict):
                 continue
                 
-            kopr = item.get('kopr')
-            if not kopr:
+            kopr = item.get('KOPR')
+            nokopr = item.get('NOKOPR')
+            
+            if not kopr or not nokopr:
                 continue
                 
-            # Buscar precio en la primera unidad con precio válido
-            for unidad in item.get('unidades', []):
-                if not isinstance(unidad, dict):
-                    continue
-                    
-                prunbruto = unidad.get('prunbruto', [{}])
-                if prunbruto and isinstance(prunbruto, list):
-                    precio = prunbruto[0].get('f', 0)
-                    if precio:
-                        precios_por_kopr[kopr] = precio
-                        break
-            else:
-                precios_por_kopr[kopr] = 0
+            try:
+                # Obtener precio (None si no existe en el diccionario)
+                precio_bruto = precios_por_kopr.get(kopr)
                 
-        _logger.info("Precios procesados: %d registros", len(precios_por_kopr))
-        return precios_por_kopr
+                # Si no encontramos precio en el endpoint de precios, usar POIVPR como fallback
+                if precio_bruto is None:
+                    precio_bruto = item.get('POIVPR', 0)
+                    sin_precio += 1
+                
+                producto_existente = ProductProduct.search([('barcode', '=', kopr)], limit=1)
+                
+                vals = {
+                    'name': nokopr,
+                    'lst_price': float(precio_bruto),
+                    'barcode': kopr,
+                    'default_code': kopr,
+                }
+                
+                if not producto_existente:
+                    vals.update({
+                        'type': 'consu',
+                        'sale_ok': True,
+                        'purchase_ok': True,
+                        'standard_price': 0,
+                    })
+                    ProductProduct.create(vals)
+                    creados += 1
+                else:
+                    producto_existente.write(vals)
+                    actualizados += 1
+                    
+            except Exception as e:
+                _logger.error(f"Error procesando producto {kopr}: {str(e)}")
+                continue
+        
+        return {
+            'creados': creados,
+            'actualizados': actualizados,
+            'sin_precio': sin_precio
+        }
     
     def _extraer_datos_productos(self, data):
         """Extrae lista de productos de la respuesta API"""
@@ -124,70 +164,27 @@ class StockPickingType(models.Model):
                 return [data]
         return None
     
-    def _procesar_productos(self, productos_data, precios_por_kopr):
-        """Procesa cada producto con sus precios y retorna estadísticas"""
-        ProductProduct = self.env['product.product']
-        creados = 0
-        actualizados = 0
+    def _mostrar_notificacion_exito(self, creados, actualizados, sin_precio):
+        """Genera acción para mostrar notificación flotante detallada"""
+        message = (
+            f"Productos nuevos: {creados}\n"
+            f"Productos actualizados: {actualizados}\n"
+            f"Productos sin precio en API: {sin_precio}"
+        )
         
-        for item in productos_data:
-            if not isinstance(item, dict):
-                continue
-                
-            kopr = item.get('KOPR')
-            nokopr = item.get('NOKOPR')
-            
-            if not kopr or not nokopr:
-                continue
-                
-            try:
-                # Obtener precio (0 si no existe)
-                precio_bruto = precios_por_kopr.get(kopr, 0)
-                
-                producto_existente = ProductProduct.search([('barcode', '=', kopr)], limit=1)
-                
-                if not producto_existente:
-                    self._crear_producto(kopr, nokopr, precio_bruto)
-                    creados += 1
-                else:
-                    self._actualizar_producto(producto_existente, nokopr, precio_bruto)
-                    actualizados += 1
-            except Exception as e:
-                _logger.warning("Error procesando producto %s: %s", kopr, str(e))
-                continue
-        
-        self.env.cr.commit()
-        return {'creados': creados, 'actualizados': actualizados}
-    
-    def _crear_producto(self, codigo, nombre, precio):
-        """Crea un nuevo producto con precio"""
-        self.env['product.product'].create({
-            'name': nombre,
-            'barcode': codigo,
-            'lst_price': float(precio),
-            'type': 'consu',
-            'sale_ok': True,
-            'purchase_ok': True,
-            'default_code': codigo,
-            'standard_price': 0,  # Costo inicial en 0
-        })
-    
-    def _actualizar_producto(self, producto, nombre, precio):
-        """Actualiza producto existente con precio"""
-        producto.write({
-            'name': nombre,
-            'lst_price': float(precio),
-        })
-    
-    def _mostrar_notificacion_exito(self, creados, actualizados):
-        """Genera acción para mostrar notificación flotante"""
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
                 'title': '✅ Importación completada',
-                'message': (
-                    f'Productos nuevos: {creados}\n'
+                'message': message,
+                'sticky': True,
+                'type': 'success',
+                'next': {
+                    'type': 'ir.actions.act_window_close'
+                },
+            }
+        } nuevos: {creados}\n'
                     f'Productos actualizados: {actualizados}\n'
                     f'Precios actualizados desde API'
                 ),
