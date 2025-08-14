@@ -98,7 +98,7 @@ class StockPickingType(models.Model):
                         producto = ProductProduct.search([('barcode', '=', kopr)], limit=1)
                         vals = {
                             'name': nokopr,
-                            'lst_price': precio,
+                            'lst_price': 123.43,
                             'barcode': kopr,
                             'default_code': kopr,
                             'type': 'consu',
