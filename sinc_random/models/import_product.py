@@ -164,23 +164,26 @@ class StockPickingType(models.Model):
                 return [data]
         return None
     
-    def _mostrar_notificacion_exito(self, creados, actualizados, sin_precio):    
-    """Genera acción para mostrar notificación flotante"""    
-    return     {
-        'type': 'ir.actions.client    ',
-        'tag': 'display_notificatio    n',
-        'params    ': {
-            'title': '✅ Importación complet    ada',
-            'messa    ge': (
-                f'Productos nuevos: {crea    dos}\n'
-                f'Productos actualizados: {actualiz    ados}\n'
-                f'Productos sin precio en API: {sin    _precio}'
+    def _mostrar_notificacion_exito(self, creados, actualizados, sin_precio):
+        """Genera acción para mostrar notificación flotante"""
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': '✅ Importación completada',
+                'message': (
+                    f'Productos nuevos: {creados}\n'
+                    f'Productos actualizados: {actualizados}\n'
+                    f'Productos sin precio en API: {sin_precio}'
                 ),
-            'sti    cky': True,
-            'type'    : 'success',
+                'sticky': True,
+                'type': 'success',
                 'next': {
-                'type': 'ir.actions.act    _window_close'    
+                    'type': 'ir.actions.act_window_close'
                 },
+            }
+        }
+
         }
     }
  nuevos: {creados}\n'
