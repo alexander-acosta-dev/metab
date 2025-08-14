@@ -2,7 +2,6 @@
 from odoo import models, api
 import requests
 from odoo.exceptions import UserError
-import json
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -180,10 +179,9 @@ class StockPickingType(models.Model):
                 'type': 'success',
                 'next': {
                     'type': 'ir.actions.act_window_close'
-                },
+                }
             }
         }
-    }
 
         }
     }
