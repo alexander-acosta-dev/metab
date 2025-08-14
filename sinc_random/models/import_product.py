@@ -1,7 +1,6 @@
 from odoo import models, api
 import requests
 from odoo.exceptions import UserError
-import json
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -12,12 +11,8 @@ class StockPickingType(models.Model):
     @api.model
     def importar_productos_desde_api(self):
         """
-        Importa productos desde API con manejo completo de precios y unidades.
-        Compatible con llamada desde registro o desde modelo.
+        Importa productos desde API con manejo completo de precios y unidades
         """
-        # Permitir que self sea registro o modelo
-        model = self.env['stock.picking.type']
-        
         try:
             # 1. Configuración API
             base_url = "http://seguimiento.random.cl:51034"
@@ -28,11 +23,11 @@ class StockPickingType(models.Model):
             }
             
             # 2. Obtener productos
-            _logger.info("Obteniendo productos desde API...")
+            _logger.info("Obteniendo productos...")
             productos = self._obtener_datos_api(f"{base_url}/productos", headers)
             
             # 3. Obtener precios
-            _logger.info("Obteniendo precios desde API...")
+            _logger.info("Obteniendo precios...")
             precios = self._obtener_datos_api(f"{base_url}/web32/precios/pidelistaprecio?token={token}", headers)
             
             # 4. Procesar datos
@@ -50,7 +45,8 @@ class StockPickingType(models.Model):
             data = response.json()
             
             if isinstance(data, dict):
-                return data.get('datos', data)  # Aseguramos que se use 'datos'
+                # Adaptado a la estructura real del JSON
+                return data.get('datos', data)
             return data if isinstance(data, list) else []
             
         except requests.exceptions.RequestException as e:
@@ -75,6 +71,9 @@ class StockPickingType(models.Model):
             if not kopr:
                 continue
                 
+            _logger.debug("Procesando precios para: %s", kopr)
+            
+            # Procesar unidades para obtener precios
             for unidad in item.get('unidades', []):
                 if not isinstance(unidad, dict):
                     continue
@@ -98,12 +97,14 @@ class StockPickingType(models.Model):
             if not isinstance(item, dict):
                 continue
                 
-            kopr = item.get('KOPR')
-            nokopr = item.get('NOKOPR')
+            kopr = item.get('KOPR') or item.get('kopr')  # asegura coincidencia con JSON
+            nokopr = item.get('NOKOPR') or item.get('nombre')
             
             if not kopr or not nokopr:
                 continue
-                
+            
+            _logger.debug("Procesando producto: %s", kopr)
+            
             if kopr in precios_por_kopr:
                 try:
                     precio_info = precios_por_kopr[kopr]
@@ -118,7 +119,7 @@ class StockPickingType(models.Model):
                         'type': 'product' if precio_info['fraccionable'] else 'consu',
                         'sale_ok': True,
                         'purchase_ok': True,
-                        'standard_price': precio_info['neto'],
+                        'standard_price': precio_info['neto'],  # Costo = precio neto
                         'uom_id': self._obtener_unidad(precio_info['unidad']),
                         'uom_po_id': self._obtener_unidad(precio_info['unidad'])
                     }
@@ -129,11 +130,14 @@ class StockPickingType(models.Model):
                         producto.write(vals)
                         
                     contador += 1
-                    _logger.debug("Procesado %s: %s", kopr, nokopr)
+                    _logger.info("Producto procesado correctamente: %s", kopr)
                     
                 except Exception as e:
                     _logger.error("Error procesando %s: %s", kopr, str(e))
+            else:
+                _logger.warning("No se encontró precio válido para el producto: %s", kopr)
         
+        # Resultado
         if contador == 0:
             msg = "No se encontraron productos con precios válidos" if productos_data else "No hay productos para importar"
             _logger.error(msg)
