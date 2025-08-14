@@ -12,7 +12,7 @@ class StockPickingType(models.Model):
     @api.model
     def importar_productos_desde_api(self):
         """
-        Importa productos desde API externa sin precios por defecto
+        Importa productos desde API externa asignando correctamente precios bruto y neto
         """
         try:
             # 1. Configuración de la API
@@ -28,77 +28,107 @@ class StockPickingType(models.Model):
             productos_response = requests.get(productos_url, headers=headers, timeout=60)
             
             if productos_response.status_code != 200:
-                raise UserError(f"Error al obtener productos: Código {productos_response.status_code}")
+                error_msg = f"Error HTTP {productos_response.status_code} al obtener productos"
+                _logger.error(error_msg)
+                raise UserError(error_msg)
             
             try:
                 productos_data = productos_response.json()
-            except ValueError:
-                raise UserError("La respuesta de productos no es JSON válido")
+                _logger.debug("Respuesta productos recibida: %s", productos_data)
+            except ValueError as e:
+                error_msg = "La respuesta de productos no es JSON válido"
+                _logger.error("%s: %s", error_msg, str(e))
+                raise UserError(error_msg)
             
             # Convertir a lista si es necesario
             if isinstance(productos_data, dict):
-                if 'data' in productos_data:
+                if 'data' in productos_data and isinstance(productos_data['data'], list):
                     productos_data = productos_data['data']
+                elif 'items' in productos_data and isinstance(productos_data['items'], list):
+                    productos_data = productos_data['items']
                 else:
                     productos_data = [productos_data]
             
             if not isinstance(productos_data, list):
-                raise UserError("Formato de productos no reconocido")
+                error_msg = "Formato de productos no reconocido"
+                _logger.error(error_msg)
+                raise UserError(error_msg)
             
-            # 3. Obtener precios (solo si la respuesta es exitosa)
-            precios_por_kopr = {}
+            _logger.info("Recibidos %d productos para procesar", len(productos_data))
+            
+            # 3. Obtener precios
+            _logger.info("Obteniendo precios desde API...")
             precios_url = f"{base_url}/web32/precios/pidelistaprecio"
             precios_response = requests.get(precios_url, headers=headers, timeout=60)
+            
+            precios_info = {}  # Diccionario para almacenar ambos precios por KOPR
             
             if precios_response.status_code == 200:
                 try:
                     precios_data = precios_response.json()
+                    _logger.debug("Datos de precios recibidos: %s", precios_data)
+                    
                     if isinstance(precios_data, list):
                         for item in precios_data:
-                            if isinstance(item, dict):
-                                kopr = item.get('kopr')
-                                if kopr and isinstance(kopr, str):
-                                    # Buscar el primer precio bruto disponible
-                                    for unidad in item.get('unidades', []):
-                                        if isinstance(unidad, dict):
-                                            prunbruto = unidad.get('prunbruto')
-                                            if isinstance(prunbruto, list) and prunbruto:
-                                                precio = prunbruto[0].get('f')
-                                                if precio is not None:
-                                                    try:
-                                                        precios_por_kopr[kopr] = float(precio)
-                                                        break  # Usar el primer precio encontrado
-                                                    except (ValueError, TypeError):
-                                                        continue
-                except ValueError:
-                    _logger.warning("La respuesta de precios no es JSON válido")
+                            if not isinstance(item, dict):
+                                continue
+                                
+                            kopr = item.get('kopr')
+                            if not kopr or not isinstance(kopr, str):
+                                continue
+                            
+                            # Buscar precios en unidades
+                            for unidad in item.get('unidades', []):
+                                if not isinstance(unidad, dict):
+                                    continue
+                                
+                                # Precio bruto (sales price)
+                                prunbruto = unidad.get('prunbruto', [{}])
+                                precio_bruto = prunbruto[0].get('f') if isinstance(prunbruto, list) and prunbruto else None
+                                
+                                # Precio neto (lst_price)
+                                prunneto = unidad.get('prunneto', [{}])
+                                precio_neto = prunneto[0].get('f') if isinstance(prunneto, list) and prunneto else None
+                                
+                                if precio_bruto is not None and precio_neto is not None:
+                                    precios_info[kopr] = {
+                                        'bruto': float(precio_bruto),
+                                        'neto': float(precio_neto)
+                                    }
+                                    break  # Usamos la primera unidad con ambos precios
+                except ValueError as e:
+                    _logger.warning("Error al decodificar precios: %s", str(e))
             else:
-                _logger.warning("No se pudieron obtener precios de la API")
-
-            # 4. Procesar productos (solo aquellos con precio)
+                _logger.warning("Error al obtener precios: Código %s", precios_response.status_code)
+            
+            _logger.info("Se obtuvieron precios para %d productos", len(precios_info))
+            
+            # 4. Procesar productos
             ProductProduct = self.env['product.product']
             contador = 0
             productos_sin_precio = 0
             
             for item in productos_data:
                 if not isinstance(item, dict):
+                    _logger.warning("Ítem no es un diccionario: %s", item)
                     continue
                     
                 kopr = item.get('KOPR')
                 nokopr = item.get('NOKOPR')
                 
                 if not kopr or not nokopr:
+                    _logger.warning("Producto sin código o nombre: %s", item)
                     continue
                 
-                # Solo procesar si existe precio para este producto
-                if kopr in precios_por_kopr:
+                if kopr in precios_info:
                     try:
-                        precio = precios_por_kopr[kopr]
+                        precio_info = precios_info[kopr]
                         
                         producto = ProductProduct.search([('barcode', '=', kopr)], limit=1)
                         vals = {
                             'name': nokopr,
-                            'lst_price': 123.43,
+                            'lst_price': precio_info['neto'],  # Precio neto
+                            'sales_price': precio_info['bruto'],  # Precio bruto
                             'barcode': kopr,
                             'default_code': kopr,
                             'type': 'consu',
@@ -106,24 +136,31 @@ class StockPickingType(models.Model):
                             'purchase_ok': True,
                         }
                         
-                        # Solo actualizar standard_price si estamos creando el producto
                         if not producto:
-                            vals['standard_price'] = 190.0  # Costo inicial en 0
+                            # Para nuevos productos, establecer costo estándar igual al precio neto
+                            vals['standard_price'] = precio_info['neto']
                             ProductProduct.create(vals)
+                            _logger.debug("Creado producto %s con precios bruto: %s, neto: %s", 
+                                        kopr, precio_info['bruto'], precio_info['neto'])
                         else:
                             producto.write(vals)
-                            
+                            _logger.debug("Actualizado producto %s con precios bruto: %s, neto: %s", 
+                                        kopr, precio_info['bruto'], precio_info['neto'])
+                        
                         contador += 1
                     except Exception as e:
-                        _logger.error(f"Error procesando producto {kopr}: {str(e)}")
+                        _logger.error("Error procesando producto %s: %s", kopr, str(e), exc_info=True)
                 else:
                     productos_sin_precio += 1
-                    _logger.info(f"Producto {kopr} sin precio en la API")
-
-            _logger.info(f"Procesados {contador} productos con precio, {productos_sin_precio} sin precio")
+                    _logger.info("Producto %s no tiene precios en la API", kopr)
+            
+            _logger.info("Procesamiento completado: %d con precios, %d sin precios", 
+                        contador, productos_sin_precio)
             
             if contador == 0:
-                raise UserError("No se pudo importar ningún producto con precio válido")
+                error_msg = "No se encontraron productos con precios válidos para importar"
+                _logger.error(error_msg)
+                raise UserError(error_msg)
             
             return {
                 'type': 'ir.actions.client',
@@ -137,8 +174,8 @@ class StockPickingType(models.Model):
             }
             
         except requests.exceptions.RequestException as e:
-            _logger.error(f"Error de conexión: {str(e)}")
+            _logger.error("Error de conexión: %s", str(e), exc_info=True)
             raise UserError(f"Error de conexión: {str(e)}")
         except Exception as e:
-            _logger.error(f"Error inesperado: {str(e)}")
+            _logger.error("Error inesperado: %s", str(e), exc_info=True)
             raise UserError(f"Error inesperado: {str(e)}")
