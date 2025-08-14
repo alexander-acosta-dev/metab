@@ -183,6 +183,7 @@ class StockPickingType(models.Model):
                 },
             }
         }
+    }
 
         }
     }
