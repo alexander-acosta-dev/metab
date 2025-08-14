@@ -12,7 +12,7 @@ class StockPickingType(models.Model):
     @api.model
     def importar_productos_desde_api(self):
         """
-        Importa productos desde API externa con precios
+        Importa productos desde API externa con manejo robusto de errores
         """
         try:
             # 1. Configuración de la API
@@ -22,64 +22,86 @@ class StockPickingType(models.Model):
                 'Content-Type': 'application/json'
             }
             
-            # 2. Obtener productos
+            # 2. Obtener productos con validación estricta
             _logger.info("Obteniendo productos desde API...")
             productos_url = f"{base_url}/productos"
             productos_response = requests.get(productos_url, headers=headers, timeout=60)
             
+            # Validar respuesta de productos
             if productos_response.status_code != 200:
-                error_msg = f"Error API productos: Código {productos_response.status_code}"
-                _logger.error(error_msg)
-                raise UserError(error_msg)
+                raise UserError(f"Error al obtener productos: Código {productos_response.status_code}")
             
-            productos_data = self._extraer_datos_productos(productos_response.json())
-            if not productos_data:
-                _logger.warning("No se encontraron productos para importar")
-                raise UserError("No se encontraron productos para importar")
+            try:
+                productos_data = productos_response.json()
+            except ValueError:
+                raise UserError("La respuesta de productos no es un JSON válido")
             
-            # 3. Obtener precios
+            # Convertir a lista si es necesario
+            if isinstance(productos_data, dict):
+                if 'data' in productos_data and isinstance(productos_data['data'], list):
+                    productos_data = productos_data['data']
+                else:
+                    productos_data = [productos_data]
+            
+            # 3. Obtener precios con validación estricta
             _logger.info("Obteniendo precios desde API...")
             precios_url = f"{base_url}/web32/precios/pidelistaprecio"
             precios_response = requests.get(precios_url, headers=headers, timeout=60)
             
-            precios_data = []
+            precios_por_kopr = {}
             if precios_response.status_code == 200:
                 try:
                     precios_data = precios_response.json()
+                    if isinstance(precios_data, list):
+                        for item in precios_data:
+                            if not isinstance(item, dict):
+                                continue
+                            kopr = item.get('kopr')
+                            if not kopr or not isinstance(kopr, str):
+                                continue
+                            
+                            # Buscar precio en unidades
+                            for unidad in item.get('unidades', []):
+                                if isinstance(unidad, dict):
+                                    prunbruto = unidad.get('prunbruto', [{}])
+                                    if isinstance(prunbruto, list) and len(prunbruto) > 0:
+                                        precio = prunbruto[0].get('f')
+                                        if precio is not None:
+                                            precios_por_kopr[kopr] = float(precio)
+                                            break
                 except ValueError:
-                    _logger.warning("Respuesta de precios no es JSON válido")
-            
-            # 4. Procesar precios
-            precios_por_kopr = {}
-            for item in precios_data:
-                kopr = item.get('kopr')
-                if kopr:
-                    for unidad in item.get('unidades', []):
-                        prunbruto = unidad.get('prunbruto', [{}])
-                        if prunbruto and prunbruto[0].get('f') is not None:
-                            precios_por_kopr[kopr] = prunbruto[0]['f']
-                            break
-            
-            # 5. Procesar productos
+                    _logger.warning("La respuesta de precios no es un JSON válido")
+
+            # 4. Procesar productos
             ProductProduct = self.env['product.product']
+            contador = 0
+            
             for item in productos_data:
-                kopr = item.get('KOPR')
-                nokopr = item.get('NOKOPR')
-                
-                if kopr and nokopr:
-                    precio = precios_por_kopr.get(kopr, 0)
-                    producto = ProductProduct.search([('barcode', '=', kopr)], limit=1)
+                if not isinstance(item, dict):
+                    continue
                     
+                try:
+                    kopr = item.get('KOPR')
+                    nokopr = item.get('NOKOPR')
+                    
+                    if not kopr or not nokopr:
+                        continue
+                        
+                    # Obtener precio o usar 0 como valor por defecto
+                    precio = float(precios_por_kopr.get(kopr, 0))
+                    
+                    # Buscar o crear producto
+                    producto = ProductProduct.search([('barcode', '=', kopr)], limit=1)
                     vals = {
                         'name': nokopr,
-                        'lst_price': float(precio),
+                        'lst_price': precio,
                         'barcode': kopr,
                         'default_code': kopr,
                     }
                     
                     if not producto:
                         vals.update({
-                            'type': 'consu',
+                            'type': 'product',
                             'sale_ok': True,
                             'purchase_ok': True,
                             'standard_price': 0,
@@ -87,14 +109,20 @@ class StockPickingType(models.Model):
                         ProductProduct.create(vals)
                     else:
                         producto.write(vals)
-            
-            # Mensaje de éxito (estructura exacta solicitada)
+                        
+                    contador += 1
+                    
+                except Exception as e:
+                    _logger.error(f"Error procesando producto {kopr}: {str(e)}")
+                    continue
+
+            # Mensaje de éxito
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
                     'title': 'Éxito',
-                    'message': f'{len(productos_data)} productos importados/actualizados correctamente.',
+                    'message': f'{contador} productos importados/actualizados correctamente.',
                     'type': 'success',
                     'sticky': False,
                 },
@@ -104,17 +132,5 @@ class StockPickingType(models.Model):
             _logger.error(f"Error de conexión: {str(e)}")
             raise UserError(f"Error de conexión: {str(e)}")
         except Exception as e:
-            _logger.exception("Error inesperado al importar productos")
+            _logger.error(f"Error inesperado: {str(e)}")
             raise UserError(f"Error inesperado: {str(e)}")
-    
-    def _extraer_datos_productos(self, data):
-        """Extrae lista de productos de la respuesta API"""
-        if isinstance(data, list):
-            return data
-        elif isinstance(data, dict):
-            for clave in ['productos', 'data', 'items', 'results', 'records']:
-                if clave in data and isinstance(data[clave], list):
-                    return data[clave]
-            if 'KOPR' in data and 'NOKOPR' in data:
-                return [data]
-        return None
