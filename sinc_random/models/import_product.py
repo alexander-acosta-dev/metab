@@ -1,7 +1,6 @@
 from odoo import models, api
 import requests
 from odoo.exceptions import UserError
-import json
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -81,7 +80,8 @@ class StockPickingType(models.Model):
                 # Precio bruto (prunbruto)
                 precio_bruto = self._extraer_precio(unidad.get('prunbruto'))
                 
-                if precio_neto and precio_bruto:
+                # Aceptar precios válidos aunque sean 0
+                if precio_neto is not None and precio_bruto is not None:
                     precios_por_kopr[kopr] = {
                         'neto': precio_neto,
                         'bruto': precio_bruto,
@@ -153,7 +153,7 @@ class StockPickingType(models.Model):
     def _extraer_precio(self, rango_precio):
         """Extrae precio del formato de rango"""
         if isinstance(rango_precio, list) and rango_precio:
-            return float(rango_precio[0].get('f', 0))
+            return float(rango_precio[0].get('f'))
         return None
 
     def _obtener_unidad(self, nombre_unidad):
