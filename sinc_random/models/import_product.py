@@ -181,9 +181,7 @@ class StockPickingType(models.Model):
                 'next': {
                     'type': 'ir.actions.act_window_close'
                 },
-            }
-        }
-        # nuevos: {creados}\n'
+            } nuevos: {creados}\n'
                     f'Productos actualizados: {actualizados}\n'
                     f'Precios actualizados desde API'
                 ),
