@@ -98,7 +98,7 @@ class StockPickingType(models.Model):
                         'type': 'consu',  # Cambiado de 'product' a 'consu'
                         'sale_ok': True,
                         'purchase_ok': True,
-                        'standard_price': 0.0,
+                        'standard_price': 19.0,
                     }
                     
                     if not producto:
