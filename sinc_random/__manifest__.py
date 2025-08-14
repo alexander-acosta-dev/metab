@@ -13,6 +13,7 @@
     'depends': ['base', 'stock', 'product'],
     'data': [
         'views/import_product_views.xml',
+        'views/import_price_views.xml',
     ],
     'installable': True,
     'application': False,

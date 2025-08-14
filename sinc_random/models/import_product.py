@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 from odoo import models, api
 import requests
 from odoo.exceptions import UserError
+import json
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -11,159 +13,146 @@ class StockPickingType(models.Model):
     @api.model
     def importar_productos_desde_api(self):
         """
-        Importa productos desde API con manejo completo de precios y unidades
+        Importa productos desde API externa y muestra notificación flotante con resultados
         """
         try:
-            # 1. Configuración API
-            base_url = "http://seguimiento.random.cl:51034"
-            token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IkE5NzgyRkQ5LTYzNzgtRjAxMS04OThGLTk4RjJCMzI2NTZCRSIsInVzZXJuYW1lIjoiYWRtaW5Ac29tZS5jb20iLCJpYXQiOjE3NTUxNjMyNTUsImV4cCI6MTc1NTE2Njg1NX0.rly7yNMFUINVrNWkBDvLgAGB2UFK_mu9qoUaAWV3b0I"
+            # 1. Configuración de la API
+            api_url = "http://seguimiento.random.cl:51034/productos"
             headers = {
-                'Authorization': f'Bearer {token}',
+                'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpZ...',
                 'Content-Type': 'application/json'
             }
             
-            # 2. Obtener productos
-            _logger.info("Obteniendo productos...")
-            productos = self._obtener_datos_api(f"{base_url}/productos", headers)
+            # 2. Llamada a la API
+            _logger.info("Iniciando importación de productos desde API...")
+            response = requests.get(api_url, headers=headers, timeout=60)
             
-            # 3. Obtener precios
-            _logger.info("Obteniendo precios...")
-            precios = self._obtener_datos_api(f"{base_url}/web32/precios/pidelistaprecio?token={token}", headers)
+            # 3. Validar respuesta HTTP
+            if response.status_code != 200:
+                error_msg = f"Error API: Código {response.status_code}"
+                if response.text:
+                    error_msg += f"\nRespuesta: {response.text[:200]}..."
+                _logger.error(error_msg)
+                raise UserError(error_msg)
             
-            # 4. Procesar datos
-            return self._procesar_productos(productos, precios)
+            # 4. Validar formato JSON
+            try:
+                data = response.json()
+            except ValueError as e:
+                _logger.error("Respuesta no es JSON válido: %s", response.text[:200])
+                raise UserError("La API devolvió una respuesta no válida (no JSON)")
             
+            # 5. Procesar datos de productos
+            productos_data = self._extraer_datos_productos(data)
+            if not productos_data:
+                _logger.warning("No se encontraron productos para importar")
+                raise UserError("No se encontraron productos para importar")
+            
+            # 6. Importar productos
+            resultados = self._procesar_productos(productos_data)
+            _logger.info(
+                "Importación completada: %d creados, %d actualizados",
+                resultados['creados'],
+                resultados['actualizados']
+            )
+            
+            # 7. Mostrar notificación flotante de éxito
+            return self._mostrar_notificacion_exito(
+                resultados['creados'],
+                resultados['actualizados']
+            )
+            
+        except requests.exceptions.Timeout:
+            _logger.error("Timeout al conectar con la API")
+            raise UserError("Tiempo de espera agotado. Inténtalo de nuevo.")
+        except requests.exceptions.ConnectionError:
+            _logger.error("Error de conexión con la API")
+            raise UserError("Error de conexión. Verifica que el servidor esté disponible.")
         except Exception as e:
-            _logger.error("Error inesperado: %s", str(e), exc_info=True)
+            _logger.exception("Error inesperado al importar productos")
+            self.env.cr.rollback()
             raise UserError(f"Error inesperado: {str(e)}")
-
-    def _obtener_datos_api(self, url, headers):
-        """Obtiene datos de la API con manejo de errores"""
-        try:
-            response = requests.get(url, headers=headers, timeout=60)
-            response.raise_for_status()
-            data = response.json()
-            
-            if isinstance(data, dict):
-                # Adaptado a la estructura real del JSON
-                return data.get('datos', data)
-            return data if isinstance(data, list) else []
-            
-        except requests.exceptions.RequestException as e:
-            _logger.error("Error API %s: %s", url, str(e))
-            raise UserError(f"Error al conectar con la API: {str(e)}")
-        except ValueError as e:
-            _logger.error("Respuesta no es JSON válido: %s", str(e))
-            raise UserError("La respuesta de la API no es válida")
-
-    def _procesar_productos(self, productos_data, precios_data):
-        """Procesa productos y precios con validación estricta"""
+    
+    def _extraer_datos_productos(self, data):
+        """Extrae lista de productos de la respuesta API"""
+        if isinstance(data, list):
+            return data
+        elif isinstance(data, dict):
+            posibles_claves = ['productos', 'data', 'items', 'results', 'records']
+            for clave in posibles_claves:
+                if clave in data and isinstance(data[clave], list):
+                    return data[clave]
+            if 'KOPR' in data and 'NOKOPR' in data:
+                return [data]
+        return None
+    
+    def _procesar_productos(self, productos_data):
+        """Procesa cada producto y retorna estadísticas"""
         ProductProduct = self.env['product.product']
-        contador = 0
+        creados = 0
+        actualizados = 0
         
-        # Estructurar precios por código
-        precios_por_kopr = {}
-        for item in precios_data:
-            if not isinstance(item, dict) or item.get('error'):
-                continue
-                
-            kopr = item.get('kopr')
-            if not kopr:
-                continue
-                
-            _logger.debug("Procesando precios para: %s", kopr)
-            
-            # Procesar unidades para obtener precios
-            for unidad in item.get('unidades', []):
-                if not isinstance(unidad, dict):
-                    continue
-                
-                precio_neto = self._extraer_precio(unidad.get('prunneto'))
-                precio_bruto = self._extraer_precio(unidad.get('prunbruto'))
-                
-                if precio_neto and precio_bruto:
-                    precios_por_kopr[kopr] = {
-                        'neto': precio_neto,
-                        'bruto': precio_bruto,
-                        'unidad': unidad.get('nombre'),
-                        'fraccionable': unidad.get('fraccionable', False)
-                    }
-                    break  # Usar la primera unidad con precios válidos
-
-        _logger.info("Precios obtenidos para %d productos", len(precios_por_kopr))
-        
-        # Procesar productos
         for item in productos_data:
             if not isinstance(item, dict):
                 continue
                 
-            kopr = item.get('KOPR') or item.get('kopr')  # asegura coincidencia con JSON
-            nokopr = item.get('NOKOPR') or item.get('nombre')
+            kopr = item.get('KOPR')
+            nokopr = item.get('NOKOPR')
+            poivpr = item.get('POIVPR', 0.0)
             
             if not kopr or not nokopr:
                 continue
             
-            _logger.debug("Procesando producto: %s", kopr)
-            
-            if kopr in precios_por_kopr:
-                try:
-                    precio_info = precios_por_kopr[kopr]
-                    producto = ProductProduct.search([('barcode', '=', kopr)], limit=1)
-                    
-                    vals = {
-                        'name': nokopr,
-                        'lst_price': precio_info['neto'],
-                        'sales_price': precio_info['bruto'],
-                        'barcode': kopr,
-                        'default_code': kopr,
-                        'type': 'product' if precio_info['fraccionable'] else 'consu',
-                        'sale_ok': True,
-                        'purchase_ok': True,
-                        'standard_price': precio_info['neto'],  # Costo = precio neto
-                        'uom_id': self._obtener_unidad(precio_info['unidad']),
-                        'uom_po_id': self._obtener_unidad(precio_info['unidad'])
-                    }
-                    
-                    if not producto:
-                        ProductProduct.create(vals)
-                    else:
-                        producto.write(vals)
-                        
-                    contador += 1
-                    _logger.info("Producto procesado correctamente: %s", kopr)
-                    
-                except Exception as e:
-                    _logger.error("Error procesando %s: %s", kopr, str(e))
-            else:
-                _logger.warning("No se encontró precio válido para el producto: %s", kopr)
+            try:
+                producto_existente = ProductProduct.search([('barcode', '=', kopr)], limit=1)
+                
+                if not producto_existente:
+                    self._crear_producto(kopr, nokopr, poivpr)
+                    creados += 1
+                else:
+                    self._actualizar_producto(producto_existente, nokopr, poivpr)
+                    actualizados += 1
+            except Exception as e:
+                _logger.warning("Error procesando producto %s: %s", kopr, str(e))
+                continue
         
-        # Resultado
-        if contador == 0:
-            msg = "No se encontraron productos con precios válidos" if productos_data else "No hay productos para importar"
-            _logger.error(msg)
-            raise UserError(msg)
-            
+        self.env.cr.commit()
+        return {'creados': creados, 'actualizados': actualizados}
+    
+    def _crear_producto(self, codigo, nombre, precio):
+        """Crea un nuevo producto"""
+        self.env['product.product'].create({
+            'name': nombre,
+            'barcode': codigo,
+            'list_price': float(precio),
+            'type': 'consu',
+            'sale_ok': True,
+            'purchase_ok': True,
+            'default_code': codigo,
+        })
+    
+    def _actualizar_producto(self, producto, nombre, precio):
+        """Actualiza producto existente"""
+        producto.write({
+            'name': nombre,
+            'list_price': float(precio),
+        })
+    
+    def _mostrar_notificacion_exito(self, creados, actualizados):
+        """Genera acción para mostrar notificación flotante"""
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
-                'title': 'Éxito',
-                'message': f'{contador} productos procesados correctamente',
+                'title': '✅ Importación completada',
+                'message': (
+                    f'Productos nuevos: {creados}\n'
+                    f'Productos actualizados: {actualizados}'
+                ),
+                'sticky': True,  # Permanece hasta que el usuario la cierre
                 'type': 'success',
-                'sticky': False,
+                'next': {
+                    'type': 'ir.actions.act_window_close'  # Cierra cualquier diálogo abierto
+                },
             }
         }
-
-    def _extraer_precio(self, rango_precio):
-        """Extrae precio del formato de rango"""
-        if isinstance(rango_precio, list) and rango_precio:
-            return float(rango_precio[0].get('f', 0))
-        return None
-
-    def _obtener_unidad(self, nombre_unidad):
-        """Obtiene ID de unidad de medida en Odoo"""
-        Uom = self.env['uom.uom']
-        if nombre_unidad:
-            unidad = Uom.search([('name', '=', nombre_unidad)], limit=1)
-            return unidad.id if unidad else Uom.search([], limit=1).id
-        return Uom.search([], limit=1).id
